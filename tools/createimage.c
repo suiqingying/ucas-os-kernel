@@ -12,6 +12,7 @@
 #define SECTOR_SIZE 512
 #define BOOT_LOADER_SIG_OFFSET 0x1fe
 #define OS_SIZE_LOC (BOOT_LOADER_SIG_OFFSET - 2)
+#define APP_INFO_ADDR_LOC (BOOT_LOADER_SIG_OFFSET - 10)
 #define BOOT_LOADER_SIG_1 0x55
 #define BOOT_LOADER_SIG_2 0xaa
 
@@ -19,7 +20,9 @@
 
 /* TODO: [p1-task4] design your own task_info_t */
 typedef struct {
-
+    char task_name[16];
+    int start_addr;
+    int block_nums;
 } task_info_t;
 
 #define TASK_MAXNUM 16
@@ -42,7 +45,7 @@ static uint32_t get_memsz(Elf64_Phdr phdr);
 static void write_segment(Elf64_Phdr phdr, FILE *fp, FILE *img, int *phyaddr);
 static void write_padding(FILE *img, int *phyaddr, int new_phyaddr);
 static void write_img_info(int nbytes_kernel, task_info_t *taskinfo,
-                           short tasknum, FILE *img);
+                           short tasknum, FILE *img, int *taskinfo_addr);
 
 int main(int argc, char **argv)
 {
@@ -94,6 +97,7 @@ static void create_image(int nfiles, char *files[])
     for (int fidx = 0; fidx < nfiles; ++fidx) {
 
         int taskidx = fidx - 2;
+        int start_addr = phyaddr;
 
         /* open input file */
         fp = fopen(*files, "r");
@@ -129,13 +133,29 @@ static void create_image(int nfiles, char *files[])
          */
         if (strcmp(*files, "bootblock") == 0) {
             write_padding(img, &phyaddr, SECTOR_SIZE);
+        } else {
+            // [p1-task3] 计算当前程序（kernel或app）在镜像中的顺序
+            // int pad_sectors = 15;
+            // int pad_bytes = pad_sectors * SECTOR_SIZE;
+            // static int program_index = 0; // kernel为0，第一个app为1
+            // int target_offset = SECTOR_SIZE + (program_index + 1) * pad_bytes;
+            // write_padding(img, &phyaddr, target_offset);
+            // program_index++;
+            write_padding(img, &phyaddr, phyaddr + (phyaddr & 1)); // 2字节对齐
+            strcpy(taskinfo[taskidx].task_name, *files);
+            taskinfo[taskidx].start_addr = start_addr;
+            taskinfo[taskidx].block_nums  = NBYTES2SEC(phyaddr) - start_addr / SECTOR_SIZE; // 考虑到一边上取整，一边下取整。这样的算法是合理的
+            printf("current phyaddr:%x\n", phyaddr);
+            printf("%s: start_addr is %x, blocknums is %d\n", taskinfo[taskidx].task_name, taskinfo[taskidx].start_addr,taskinfo[taskidx].block_nums);
         }
-
         fclose(fp);
         files++;
     }
-    write_img_info(nbytes_kernel, taskinfo, tasknum, img);
-
+    write_img_info(nbytes_kernel, taskinfo, tasknum, img, &phyaddr);
+    printf("current phyaddr:%x\n", phyaddr);
+    fseek(img, phyaddr, SEEK_SET);
+    write_padding(img, &phyaddr, NBYTES2SEC(phyaddr) * SECTOR_SIZE);
+    printf("current phyaddr:%x\n", phyaddr);
     fclose(img);
 }
 
@@ -211,10 +231,36 @@ static void write_padding(FILE *img, int *phyaddr, int new_phyaddr)
 }
 
 static void write_img_info(int nbytes_kernel, task_info_t *taskinfo,
-                           short tasknum, FILE * img)
+                           short tasknum, FILE * img, int *taskinfo_addr)
 {
     // TODO: [p1-task3] & [p1-task4] write image info to some certain places
     // NOTE: os size, infomation about app-info sector(s) ...
+     // 计算 kernel 所占扇区数
+    short kernel_sectors = NBYTES2SEC(nbytes_kernel);
+
+    // 跳转到 OS_SIZE_LOC 位置
+    fseek(img, OS_SIZE_LOC, SEEK_SET);
+
+    // 写入 kernel 所占扇区数（2字节）
+    fwrite(&kernel_sectors, sizeof(short), 1, img);
+    printf("kernel sectors: %d\n", kernel_sectors); 
+
+    // 写入用户程序数目（2字节，紧跟在 kernel_sectors 后面）
+    fwrite(&tasknum, sizeof(short), 1, img);
+    printf("user program count: %d\n", tasknum);
+
+        // 将taskinfo的size写进bootloader的末尾几个字节
+    int info_size = sizeof(task_info_t) * tasknum;
+    // 将定位信息写进bootloader的末尾几个字节
+    fseek(img, APP_INFO_ADDR_LOC, SEEK_SET);  // 文件指针指到 APP_INFO_ADDR_LOC
+    fwrite(taskinfo_addr, sizeof(int), 1, img);
+    printf("Task info address: %x\n", *taskinfo_addr);
+    fwrite(&info_size, sizeof(int), 1, img);    
+    printf("Task info size: %d\n", info_size);
+    fseek(img, *taskinfo_addr, SEEK_SET);  
+    fwrite(taskinfo, sizeof(task_info_t), tasknum, img);
+    printf("Task info written at: %x\n", *taskinfo_addr);
+    *taskinfo_addr += info_size;
 }
 
 /* print an error message and exit */
