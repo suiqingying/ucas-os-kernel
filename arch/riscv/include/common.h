@@ -24,6 +24,8 @@
 #ifndef INCLUDE_COMMON_H_
 #define INCLUDE_COMMON_H_
 
+#include <type.h>
+
 #define REG_DAT     0x00
 #define REG_IER     0x01
 #define REG_IIR     0x02
@@ -43,6 +45,14 @@
 #define COLOR_CYAN     "\e[36m"
 #define COLOR_RESET    "\e[0m"
 
+enum FDT_TYPE {
+    TIMEBASE,
+    SLCR_BADE_ADDR,
+    ETHERNET_ADDR,
+    PLIC_ADDR,
+    NR_IRQS
+};
+
 // enter a char into serial port
 // use bios printch function
 void port_write_ch(char ch);
@@ -59,12 +69,22 @@ int port_read_ch(void);
 // use bios bios_sd_read function
 int sd_read(unsigned mem_address, unsigned num_of_blocks, unsigned block_id);
 
+/************************************************************/
 // write blocks to sd card
 // use bios bios_sdwrite function
 int sd_write(unsigned mem_address, unsigned num_of_blocks, unsigned block_id);
 
-/************************************************************/
-/* Do not touch this comment. Reserved for future projects. */
+// set timer
+// use bios set_timer function
+void set_timer(uint64_t stime_value);
+
+// read flat device tree
+// use bios read_fdt function
+uint64_t read_fdt(enum FDT_TYPE type);
+
+// write debug information to logfile, this function is realized via qemu dump
+// use bios logging function
+void qemu_logging(char *str);
 /************************************************************/
 
 #endif
