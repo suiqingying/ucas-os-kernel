@@ -4,6 +4,7 @@
 #include <type.h>
 #define PIPE_LOC 0x54000000 /* address of pipe */
 void batch_process(int initial_value); // 提前声明
+void list_user_tasks();
 
 /* uint64_t load_task_img(int taskid)
 { [p1-task3]
@@ -37,6 +38,10 @@ void batch_process(int initial_value); // 提前声明
     if (strcmp(task_name, "batch") == 0) {
         batch_process(0); // 批处理任务，初始值为0
         return 0; // 批处理任务不需要返回入口地址
+    }
+    if (strcmp(task_name, "list") == 0) {
+        list_user_tasks(); // 列出用户程序
+        return 0; // 列出任务不需要返回入口地址
     }
     if (strlen(task_name) == 0) {
         bios_putstr("No task name entered. Please try again.\n\r");
@@ -82,6 +87,17 @@ void batch_process(int initial_value)
             bios_putstr("Task finished.\n\r");
         } else {
             bios_putstr("Task not found!\n\r");
+        }
+    }
+}
+
+void list_user_tasks()
+{
+    bios_putstr("User programs:\n\r");
+    for (int i = 0; i < TASK_MAXNUM; i++) {
+        if (strlen(tasks[i].task_name) > 0) {
+            bios_putstr(tasks[i].task_name);
+            bios_putstr("\n\r");
         }
     }
 }

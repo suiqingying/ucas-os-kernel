@@ -273,6 +273,6 @@ static void error(char *fmt, ...)
     va_end(args);
     if (errno != 0) {
         perror(NULL);
-    }
+    
     exit(EXIT_FAILURE);
 }
