@@ -13,6 +13,7 @@
 #define BOOT_LOADER_SIG_OFFSET 0x1fe
 #define OS_SIZE_LOC (BOOT_LOADER_SIG_OFFSET - 2)
 #define APP_INFO_ADDR_LOC (BOOT_LOADER_SIG_OFFSET - 10)
+#define BATCH_FILE_SECTOR 50
 #define BOOT_LOADER_SIG_1 0x55
 #define BOOT_LOADER_SIG_2 0xaa
 
@@ -156,6 +157,8 @@ static void create_image(int nfiles, char *files[])
     fseek(img, phyaddr, SEEK_SET);
     write_padding(img, &phyaddr, NBYTES2SEC(phyaddr) * SECTOR_SIZE);
     printf("current phyaddr:%x\n", phyaddr);
+    write_padding(img, &phyaddr, (BATCH_FILE_SECTOR + 3) * SECTOR_SIZE);
+    printf("Writing padding for batch file, current phyaddr:%x\n", phyaddr);
     fclose(img);
 }
 
@@ -275,4 +278,5 @@ static void error(char *fmt, ...)
         perror(NULL);
     
     exit(EXIT_FAILURE);
+}
 }

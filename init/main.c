@@ -34,6 +34,7 @@ static void init_jmptab(void)
     jmptab[CONSOLE_PUTCHAR] = (long (*)())port_write_ch;
     jmptab[CONSOLE_GETCHAR] = (long (*)())port_read_ch;
     jmptab[SD_READ]         = (long (*)())sd_read;
+    jmptab[SD_WRITE]        = (long (*)())sd_write;
 }
 
 static void init_task_info(int app_info_loc, int app_info_size)
