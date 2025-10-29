@@ -3,7 +3,32 @@
 #include <os/kernel.h>
 #include <type.h>
 #define PIPE_LOC 0x54000000 /* address of pipe */
-#define BATCH_FILE_SECTOR 50
+/* Boot info offsets used by createimage.c */
+#define BOOT_LOADER_SIG_OFFSET 0x1fe
+#define APP_INFO_ADDR_LOC (BOOT_LOADER_SIG_OFFSET - 10)
+
+/* read the batch file sector from boot info (stored at APP_INFO_ADDR_LOC + 8)
+ * We cache the value after first read.
+ */
+static int get_batch_sector_from_bootinfo()
+{
+    static int cached = -1;
+    if (cached != -1) return cached;
+
+    char buf[512] = {0};
+    /* read sector 0 which contains the bootblock info */
+    sd_read((uintptr_t)buf, 1, 0);
+    int value = 0;
+    /* batch sector was written as an int at APP_INFO_ADDR_LOC + 8 */
+    int offset = APP_INFO_ADDR_LOC + 8;
+    /* assemble the int from bytes (little-endian) to avoid memcpy/un-aligned access */
+    value = (int)((unsigned char)buf[offset] |
+                  ((unsigned char)buf[offset + 1] << 8) |
+                  ((unsigned char)buf[offset + 2] << 16) |
+                  ((unsigned char)buf[offset + 3] << 24));
+    cached = value;
+    return cached;
+}
 #define BATCH_FILE_MAX_TASKS 16
 #define BATCH_FILE_TASK_NAME_LEN 16
 
@@ -114,14 +139,21 @@ void write_batch_file(char *task_list[], int task_count) {
     for (int i = 0; i < task_count && i < BATCH_FILE_MAX_TASKS; i++) {
         strncpy(buffer + i * BATCH_FILE_TASK_NAME_LEN, task_list[i], BATCH_FILE_TASK_NAME_LEN - 1);
     }
-    sd_write((uintptr_t)buffer, 1, BATCH_FILE_SECTOR);
+    int batch_sector = get_batch_sector_from_bootinfo();
+    if (batch_sector <= 0) {
+        bios_putstr("\n\rError: batch sector not found in boot info.\n\r");
+        return;
+    }
+    sd_write((uintptr_t)buffer, 1, batch_sector);
     bios_putstr("\n\rBatch file written.\n\r");
 }
 
 // 读取批处理文件
 int read_batch_file(char task_list[][BATCH_FILE_TASK_NAME_LEN]) {
     char buffer[512] = {0};
-    sd_read((uintptr_t)buffer, 1, BATCH_FILE_SECTOR);
+    int batch_sector = get_batch_sector_from_bootinfo();
+    if (batch_sector <= 0) return 0;
+    sd_read((uintptr_t)buffer, 1, batch_sector);
     int count = 0;
     for (int i = 0; i < BATCH_FILE_MAX_TASKS; i++) {
         if (buffer[i * BATCH_FILE_TASK_NAME_LEN] != 0) {
@@ -136,7 +168,8 @@ uint64_t load_single_task(char *task_name)
 {
     for (int i = 0; i < TASK_MAXNUM; i++)
     {
-        if (strcmp(task_name, tasks[i].task_name) == 0)
+        /* 只考虑有效的已登记任务（block_nums>0），避免加载未使用的 slot */
+        if (tasks[i].block_nums > 0 && strcmp(task_name, tasks[i].task_name) == 0)
         {
             uint64_t mem_addr = TASK_MEM_BASE + TASK_SIZE * i;
             int start_sec = tasks[i].start_addr / 512;

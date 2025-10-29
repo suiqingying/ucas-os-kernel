@@ -90,8 +90,8 @@ int main(int app_info_loc, int app_info_size)
         char input_name[16] = "";
         int idx = 0;
         int ch;
-        // 读取字符串直到回车
-        while ((ch = bios_getchar()) != '\r' && idx < 31) {
+        // 读取字符串直到回车，避免越界：限制为 input_name 大小 - 1
+        while ((ch = bios_getchar()) != '\r' && idx < (int)(sizeof(input_name) - 1)) {
             if (ch != -1) {
                 input_name[idx++] = (char)ch;
                 bios_putchar(ch); // 回显

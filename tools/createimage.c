@@ -154,11 +154,32 @@ static void create_image(int nfiles, char *files[])
     }
     write_img_info(nbytes_kernel, taskinfo, tasknum, img, &phyaddr);
     printf("current phyaddr:%x\n", phyaddr);
+    /*
+     * Ensure the image is padded to sector boundary and then reserve
+     * exactly one sector at the end for the batch file. Instead of
+     * using a hard-coded absolute sector (like 50), record the batch
+     * sector dynamically (the first free sector after current content)
+     * and write that value into the boot info area so the loader can
+     * find it at runtime.
+     */
     fseek(img, phyaddr, SEEK_SET);
+    /* pad to current sector boundary */
     write_padding(img, &phyaddr, NBYTES2SEC(phyaddr) * SECTOR_SIZE);
     printf("current phyaddr:%x\n", phyaddr);
-    write_padding(img, &phyaddr, (BATCH_FILE_SECTOR + 3) * SECTOR_SIZE);
-    printf("Writing padding for batch file, current phyaddr:%x\n", phyaddr);
+
+    /* reserve one sector for batch file at the end */
+    int current_sectors = NBYTES2SEC(phyaddr);
+    int batch_sector = current_sectors; /* batch will live at this sector */
+    write_padding(img, &phyaddr, (batch_sector + 1) * SECTOR_SIZE);
+    printf("Reserved one sector for batch file at sector %d, current phyaddr:%x\n", batch_sector, phyaddr);
+
+    /* write batch_sector into bootblock info area (after taskinfo addr/size)
+     * APP_INFO_ADDR_LOC already holds taskinfo addr and size (8 bytes).
+     * We write batch_sector as an int at APP_INFO_ADDR_LOC + 8.
+     */
+    fseek(img, APP_INFO_ADDR_LOC + 8, SEEK_SET);
+    fwrite(&batch_sector, sizeof(int), 1, img);
+    printf("Wrote batch sector (%d) to boot info at offset 0x%x\n", batch_sector, APP_INFO_ADDR_LOC + 8);
     fclose(img);
 }
 
