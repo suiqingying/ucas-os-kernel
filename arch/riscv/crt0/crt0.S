@@ -7,8 +7,8 @@ ENTRY(_start)
     addi t2, sp, 0
     la sp, USER_STACK
     addi sp, sp, -16         # 分配空间
-    sd   t2, 0(sp)           # 压栈保存原sp
-    sd   ra, 8(sp)           # 压栈保存ra
+    sd t2, 0(sp)           # 压栈保存原sp
+    sd ra, 8(sp)           # 压栈保存ra
 
     la t0, __bss_start
     la t1, __BSS_END__
