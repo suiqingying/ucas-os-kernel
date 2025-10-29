@@ -19,7 +19,7 @@
 
 #define NBYTES2SEC(nbytes) (((nbytes) / SECTOR_SIZE) + ((nbytes) % SECTOR_SIZE != 0))
 
-/* TODO: [p1-task4] design your own task_info_t */
+/* design your own task_info_t */
 typedef struct {
     char task_name[16];
     int start_addr;
@@ -80,7 +80,7 @@ int main(int argc, char **argv)
     return 0;
 }
 
-/* TODO: [p1-task4] assign your task_info_t somewhere in 'create_image' */
+/* assign your task_info_t somewhere in 'create_image' */
 static void create_image(int nfiles, char *files[])
 {
     int tasknum = nfiles - 2;
@@ -126,22 +126,11 @@ static void create_image(int nfiles, char *files[])
         }
 
         /* write padding bytes */
-        /**
-         * TODO:
-         * 1. [p1-task3] do padding so that the kernel and every app program
-         *  occupies the same number of sectors
-         * 2. [p1-task4] only padding bootblock is allowed!
+        /* only padding bootblock is allowed!
          */
         if (strcmp(*files, "bootblock") == 0) {
             write_padding(img, &phyaddr, SECTOR_SIZE);
         } else {
-            // [p1-task3] 计算当前程序（kernel或app）在镜像中的顺序
-            // int pad_sectors = 15;
-            // int pad_bytes = pad_sectors * SECTOR_SIZE;
-            // static int program_index = 0; // kernel为0，第一个app为1
-            // int target_offset = SECTOR_SIZE + (program_index + 1) * pad_bytes;
-            // write_padding(img, &phyaddr, target_offset);
-            // program_index++;
             write_padding(img, &phyaddr, phyaddr + (phyaddr & 1)); // 2字节对齐
             strcpy(taskinfo[taskidx].task_name, *files);
             taskinfo[taskidx].start_addr = start_addr;
@@ -154,11 +143,32 @@ static void create_image(int nfiles, char *files[])
     }
     write_img_info(nbytes_kernel, taskinfo, tasknum, img, &phyaddr);
     printf("current phyaddr:%x\n", phyaddr);
+    /*
+     * Ensure the image is padded to sector boundary and then reserve
+     * exactly one sector at the end for the batch file. Instead of
+     * using a hard-coded absolute sector (like 50), record the batch
+     * sector dynamically (the first free sector after current content)
+     * and write that value into the boot info area so the loader can
+     * find it at runtime.
+     */
     fseek(img, phyaddr, SEEK_SET);
+    /* pad to current sector boundary */
     write_padding(img, &phyaddr, NBYTES2SEC(phyaddr) * SECTOR_SIZE);
     printf("current phyaddr:%x\n", phyaddr);
-    write_padding(img, &phyaddr, (BATCH_FILE_SECTOR + 3) * SECTOR_SIZE);
-    printf("Writing padding for batch file, current phyaddr:%x\n", phyaddr);
+
+    /* reserve one sector for batch file at the end */
+    int current_sectors = NBYTES2SEC(phyaddr);
+    int batch_sector = current_sectors; /* batch will live at this sector */
+    write_padding(img, &phyaddr, (batch_sector + 1) * SECTOR_SIZE);
+    printf("Reserved one sector for batch file at sector %d, current phyaddr:%x\n", batch_sector, phyaddr);
+
+    /* write batch_sector into bootblock info area (after taskinfo addr/size)
+     * APP_INFO_ADDR_LOC already holds taskinfo addr and size (8 bytes).
+     * We write batch_sector as an int at APP_INFO_ADDR_LOC + 8.
+     */
+    fseek(img, APP_INFO_ADDR_LOC + 8, SEEK_SET);
+    fwrite(&batch_sector, sizeof(int), 1, img);
+    printf("Wrote batch sector (%d) to boot info at offset 0x%x\n", batch_sector, APP_INFO_ADDR_LOC + 8);
     fclose(img);
 }
 
@@ -236,7 +246,7 @@ static void write_padding(FILE *img, int *phyaddr, int new_phyaddr)
 static void write_img_info(int nbytes_kernel, task_info_t *taskinfo,
                            short tasknum, FILE * img, int *taskinfo_addr)
 {
-    // TODO: [p1-task3] & [p1-task4] write image info to some certain places
+    // write image info to some certain places
     // NOTE: os size, infomation about app-info sector(s) ...
      // 计算 kernel 所占扇区数
     short kernel_sectors = NBYTES2SEC(nbytes_kernel);

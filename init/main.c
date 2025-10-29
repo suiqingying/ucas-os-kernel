@@ -36,6 +36,8 @@ static void init_jmptab(void)
     jmptab[SET_TIMER]       = (long (*)())set_timer;
     jmptab[READ_FDT]        = (long (*)())read_fdt;
     jmptab[MOVE_CURSOR]     = (long (*)())screen_move_cursor;
+    jmptab[WRITE]           = (long (*)())screen_write;
+    jmptab[REFLUSH]         = (long (*)())screen_reflush;
     jmptab[PRINT]           = (long (*)())printk;
     jmptab[YIELD]           = (long (*)())do_scheduler;
     jmptab[MUTEX_INIT]      = (long (*)())do_mutex_lock_init;
@@ -48,7 +50,7 @@ static void init_jmptab(void)
 
 static void init_task_info(int app_info_loc, int app_info_size)
 {
-    // TODO: [p1-task4] Init 'tasks' array via reading app-info sector
+    // Init 'tasks' array via reading app-info sector
     // NOTE: You need to get some related arguments from bootblock first
     int start_sec, blocknums;
     start_sec = app_info_loc / SECTOR_SIZE;
@@ -79,17 +81,49 @@ static void init_pcb_stack(
      */
     switchto_context_t *pt_switchto =
         (switchto_context_t *)((ptr_t)pt_regs - sizeof(switchto_context_t));
-
+    pcb->kernel_sp = (reg_t)pt_switchto;
+    pt_switchto->regs[0] = (uint64_t) entry_point;     // ra        
+    pt_switchto->regs[1] = pcb->user_sp;  // sp
 }
 
 static void init_pcb(void)
 {
     /* TODO: [p2-task1] load needed tasks and init their corresponding PCB */
-
+    // PCB for kernel
+    uint64_t entry[NUM_MAX_TASK+1];   /* entry of all tasks */
+    char needed_tasks[][16] = {
+        "print1", "print2", "fly"
+    };
+    uint64_t entry_addr;
+    int tasknum = 0;
+    pid0_pcb.status = TASK_RUNNING;
+    pid0_pcb.list.prev = NULL;
+    pid0_pcb.list.next = NULL;
+    init_pcb_stack(pid0_pcb.kernel_sp, pid0_pcb.user_sp, (uint64_t)ret_from_exception, &pid0_pcb);
+    // load task by name;
+    for(int i= 0; i<3; i++){
+        entry_addr = load_task_img(needed_tasks[i]);
+        // create a PCB
+        if(entry_addr!=0){
+            pcb[tasknum].kernel_sp = (reg_t)(allocKernelPage(1)+PAGE_SIZE);    //分配一页
+            pcb[tasknum].user_sp = (reg_t)(allocUserPage(1)+PAGE_SIZE);
+            pcb[tasknum].pid = tasknum + 1; // pid 0 is for kernel
+            pcb[tasknum].status = TASK_READY;
+            pcb[tasknum].cursor_x = 0;
+            pcb[tasknum].cursor_y = 0;
+            init_pcb_stack(pcb[tasknum].kernel_sp, pcb[tasknum].user_sp, entry_addr, &pcb[tasknum]);
+            // add to ready queue
+            add_node_to_q(&pcb[tasknum].list, &ready_queue);
+            
+            if(++tasknum > NUM_MAX_TASK)  // total tasks should be less than the threshold
+                break;
+        }
+    }
 
     /* TODO: [p2-task1] remember to initialize 'current_running' */
-
+    current_running = &pid0_pcb;
 }
+
 
 static void init_syscall(void)
 {
@@ -130,83 +164,6 @@ int main(int app_info_loc, int app_info_size)
 
     // TODO: [p2-task4] Setup timer interrupt and enable all interrupt globally
     // NOTE: The function of sstatus.sie is different from sie's
-    
-
-
-    while (1) {
-        bios_putstr("Please input task name:\n");
-
-        char input_name[16] = "";
-        int idx = 0;
-        int ch;
-        // 读取字符串直到回车
-        while ((ch = bios_getchar()) != '\r' && idx < 31) {
-            if (ch != -1) {
-                input_name[idx++] = (char)ch;
-                bios_putchar(ch); // 回显
-            }
-        }
-        input_name[idx] = '\0';
-
-        uint64_t entry_addr = load_task_img(input_name);
-        bios_putstr("\n");
-        if(entry_addr != 0){
-            void (*entry)(void) = (void (*)(void))entry_addr;
-            entry();
-            bios_putstr("Task loaded. You can input again.\n\r");
-        }
-    }
-
-    // [p1-task3] 交互式输入 task id 并运行对应用户程序
-    // int tasknum = TASK_MAXNUM; // 或者根据实际任务数赋值
-    // bios_putstr("Input task id to run (0 ~ ");
-    // bios_putchar('0' + tasknum - 1); // 假设 tasknum 已知
-    // bios_putstr("):\n\r");
-
-    // int input_id = 0;
-    // while (1) {
-    //     bios_putstr("task id> ");
-    //     input_id = 0;
-    //     int ch;
-    //     // 读取数字并回显
-    //     while (1) {
-    //         ch = bios_getchar();
-    //         if (ch == '\n' || ch == '\r') break;
-    //         if (ch >= '0' && ch <= '9') {
-    //             bios_putchar(ch);
-    //             input_id = input_id * 10 + (ch - '0');
-    //         }
-    //     }
-    //     bios_putstr("\n\r");
-
-    //     // 检查合法性
-    //     if (input_id < 0 || input_id >= tasknum) {
-    //         bios_putstr("Invalid task id!\n\r");
-    //         continue;
-    //     }
-
-    //     // 加载并执行
-    //     uint64_t entry_addr = load_task_img(input_id);
-    //     bios_putstr("Loading task...\n\r");
-
-    //     // 用函数指针跳转到用户程序入口
-    //     void (*entry)(void) = (void (*)(void))entry_addr;
-    //     entry();
-
-    //     bios_putstr("Task loaded. You can input again.\n\r");
-    // }
-        
-    // [p1-task2] 持续读取键盘输入并回显到屏幕
-    // bios_putstr("Input from keyboard (echo):\n\r");
-    // while (1)
-    // {
-    //     int ch = bios_getchar();   // 跳转表API读取键盘
-    //     if (ch != -1)              // 只处理有效输入
-    //         bios_putchar(ch);      // 跳转表API回显
-    // }
-
-    // TODO: Load tasks by either task id [p1-task3] or task name [p1-task4],
-    //   and then execute them.
 
     // Infinite while loop, where CPU stays in a low-power state (QAQQQQQQQQQQQ)
     while (1)

@@ -11,7 +11,7 @@
 #define SECTOR_SIZE 512
 #define NBYTES2SEC(nbytes) (((nbytes) / SECTOR_SIZE) + ((nbytes) % SECTOR_SIZE != 0))
 
-/* TODO: [p1-task4] implement your own task_info_t! */
+/* implement your own task_info_t! */
 typedef struct {
     char task_name[16];
     int start_addr;

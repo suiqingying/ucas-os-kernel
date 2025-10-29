@@ -3,7 +3,7 @@
 .section ".entry_function","ax"
 ENTRY(_start)
 
-    /* TODO: [p1-task3] setup C runtime environment for the user program */
+    /* setup C runtime environment for the user program */
     addi t2, sp, 0
     la sp, USER_STACK
     addi sp, sp, -16         # 分配空间
@@ -16,10 +16,10 @@ clear_bss:
     sw zero, 0(t0)
     addi t0, t0, 4
     bltu t0, t1, clear_bss
-    /* TODO: [p1-task3] enter main function */
+    /* enter main function */
     jal main                        # 跳转到用户程序main函数
 
-    /* TODO: [p1-task3] finish task and return to the kernel, replace this in p3-task2! */
+    /* finish task and return to the kernel, replace this in p3-task2! */
     ld   t2, 0(sp)           # 恢复原sp
     ld   ra, 8(sp)           # 恢复ra
     addi sp, sp, 16
