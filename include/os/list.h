@@ -52,6 +52,7 @@ typedef list_node_t list_head;
 
 /* TODO: [p2-task1] implement your own list API */
 list_node_t *seek_ready_node();
+void init_list_head(list_head *list);
 void add_node_to_q(list_node_t* node, list_head *head);
 void delete_node_from_q(list_node_t* node);
 
