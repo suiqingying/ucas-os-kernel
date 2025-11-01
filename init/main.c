@@ -27,22 +27,22 @@ static void init_jmptab(void)
 {
     volatile long (*(*jmptab))() = (volatile long (*(*))())KERNEL_JMPTAB_BASE;
 
-    jmptab[CONSOLE_PUTSTR]  = (long (*)())port_write;
-    jmptab[CONSOLE_PUTCHAR] = (long (*)())port_write_ch;
-    jmptab[CONSOLE_GETCHAR] = (long (*)())port_read_ch;
-    jmptab[SD_READ]         = (long (*)())sd_read;
-    jmptab[SD_WRITE]        = (long (*)())sd_write;
-    jmptab[QEMU_LOGGING]    = (long (*)())qemu_logging;
-    jmptab[SET_TIMER]       = (long (*)())set_timer;
-    jmptab[READ_FDT]        = (long (*)())read_fdt;
-    jmptab[MOVE_CURSOR]     = (long (*)())screen_move_cursor;
-    jmptab[WRITE]           = (long (*)())screen_write;
-    jmptab[REFLUSH]         = (long (*)())screen_reflush;
-    jmptab[PRINT]           = (long (*)())printk;
-    jmptab[YIELD]           = (long (*)())do_scheduler;
-    jmptab[MUTEX_INIT]      = (long (*)())do_mutex_lock_init;
-    jmptab[MUTEX_ACQ]       = (long (*)())do_mutex_lock_acquire;
-    jmptab[MUTEX_RELEASE]   = (long (*)())do_mutex_lock_release;
+    jmptab[CONSOLE_PUTSTR]  = (volatile long (*)())port_write;
+    jmptab[CONSOLE_PUTCHAR] = (volatile long (*)())port_write_ch;
+    jmptab[CONSOLE_GETCHAR] = (volatile long (*)())port_read_ch;
+    jmptab[SD_READ]         = (volatile long (*)())sd_read;
+    jmptab[SD_WRITE]        = (volatile long (*)())sd_write;
+    jmptab[QEMU_LOGGING]    = (volatile long (*)())qemu_logging;
+    jmptab[SET_TIMER]       = (volatile long (*)())set_timer;
+    jmptab[READ_FDT]        = (volatile long (*)())read_fdt;
+    jmptab[MOVE_CURSOR]     = (volatile long (*)())screen_move_cursor;
+    jmptab[WRITE]           = (volatile long (*)())screen_write; 
+    jmptab[REFLUSH]         = (volatile long (*)())screen_reflush;
+    jmptab[PRINT]           = (volatile long (*)())printk;
+    jmptab[YIELD]           = (volatile long (*)())do_scheduler;
+    jmptab[MUTEX_INIT]      = (volatile long (*)())do_mutex_lock_init;
+    jmptab[MUTEX_ACQ]       = (volatile long (*)())do_mutex_lock_acquire;
+    jmptab[MUTEX_RELEASE]   = (volatile long (*)())do_mutex_lock_release;
 
     // TODO: [p2-task1] (S-core) initialize system call table.
 
@@ -169,7 +169,7 @@ int main(int app_info_loc, int app_info_size)
     while (1)
     {
         // If you do non-preemptive scheduling, it's used to surrender control
-        do_scheduler();
+         do_scheduler();
 
         // If you do preemptive scheduling, they're used to enable CSR_SIE and wfi
         // enable_preempt();

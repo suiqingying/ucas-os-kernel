@@ -7,6 +7,9 @@
 #include <printk.h>
 #include <assert.h>
 
+int FLY_SPEED_TABLE[16];
+int FLY_LENGTH_TABLE[16];
+
 pcb_t pcb[NUM_MAX_TASK];
 const ptr_t pid0_stack = INIT_KERNEL_STACK + PAGE_SIZE;
 pcb_t pid0_pcb = {
