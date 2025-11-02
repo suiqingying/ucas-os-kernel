@@ -1,22 +1,85 @@
-  Task 3 的目标与实验步骤
+# 操作系统项目二：内核实现日志
 
-  核心目标：
-   1. 掌握系统调用流程：理解用户态程序如何通过 ecall 指令陷入内核态，以及内核如何处理并返回。
-   2. 实现异常（Exception）处理：系统调用是一种由程序主动触发的“异常”。你需要搭建起整个异常处理的骨架，包括入口、上下文保存
-      /恢复、返回等。
-   3. 实现新的系统调用：你需要重新实现 sys_yield 等函数，并新增 sys_sleep 函数。
+本文档记录了在实现简易内核（Project 2）过程中的主要工作、遇到的问题以及相关的学习与思考。
 
-  实验步骤概览：
-  根据课件第19-20页，你需要修改以下文件，完成这些步骤：
-   1. `init/main.c`: 初始化系统调用，并完善PCB内核栈的初始化函数 init_pcb_stack，为异常处理准备好栈环境。
-   2. `arch/riscv/kernel/trap.S`: 设置 stvec 寄存器，让CPU知道发生异常时应该跳转到哪里。
-   3. `kernel/irq/irq.c`: 初始化异常处理相关的跳转表。
-   4. `arch/riscv/kernel/entry.S`: 实现异常处理的总入口 exception_handler_entry，核心是
-      保存当前进程的上下文（所有寄存器）。
-   5. `arch/riscv/kernel/entry.S`: 实现 SAVE_CONTEXT 和 RESTORE_CONTEXT 两个宏，用于保存和恢复上下文。
-   6. `arch/riscv/kernel/entry.S`: 实现 ret_from_exception，用于从异常中安全返回用户态。
-   7. `tiny_libc/syscall.c`: 实现 invoke_syscall 函数，使用 ecall 汇编指令真正地发起一次系统调用。
-   8. `kernel/syscall/syscall.c`: 实现 handle_syscall
-      函数，它作为内核中系统调用的分发中心，根据传入的系统调用号，调用对应的内核函数（如 do_sleep）。
-   9. `kernel/sched/sched.c` 和 `kernel/sched/time.c`: 实现 do_sleep 和 check_sleeping 函数，让进程可以睡眠。
-   10. 运行测试：运行所有给出的测试任务（syscall版本），并得到正确结果。
+## Task 1: 任务启动与非抢占式调度
+
+### 已完成工作
+
+1.  **进程控制块 (PCB) 初始化**: 实现了 `init_pcb` 函数，用于在内核启动时加载预设的用户任务（如 `print1`, `lock1` 等），并为它们创建和初始化PCB。
+2.  **上下文初始化**: 实现了 `init_pcb_stack`，用于在每个进程的内核栈上预置初始上下文，确保进程在第一次被调度时能从其入口点正确开始执行。
+3.  **就绪队列 (Ready Queue)**: 定义并初始化了一个全局的 `ready_queue`，用于管理所有处于就绪状态的进程。
+4.  **非抢占式调度器**: 实现了 `do_scheduler` 的基本版本。在非抢占式模型下，它通过 `sys_yield` 等方式被动触发，从就绪队列中选择下一个要运行的进程。
+5.  **上下文切换**: 实现了 `switch_to` 汇编函数，负责在进程切换时，保存上一个进程的 callee-saved 寄存器，并恢复下一个进程的寄存器，完成CPU状态的交接。
+
+---
+
+## Task 2: 互斥锁 (Mutex) 的实现
+
+### 已完成工作
+
+1.  **进程阻塞与唤醒**: 在 `sched.c` 中实现了 `do_block` 和 `do_unblock` 函数，为进程的挂起和恢复提供了基础机制。
+2.  **锁的初始化**: 实现了 `init_locks` 对全局锁数组进行初始化，以及 `do_mutex_lock_init` 函数，允许用户程序通过一个 `key` 来请求和创建一把锁。
+3.  **锁的获取与释放**: 实现了 `do_mutex_lock_acquire` 和 `do_mutex_lock_release` 的核心逻辑，处理了锁空闲和锁被占用两种情况下的不同行为。
+4.  **自旋锁 (Spin Lock)**: 实现了 `spin_lock_acquire` 等一系列自旋锁函数，作为底层原子操作的封装，用于保护互斥锁自身数据结构在修改时的线程安全。
+5.  **系统调用接口**: 在 `tiny_libc/syscall.c` 中，通过跳转表（Jumptab）为用户程序提供了 `sys_mutex_init`, `sys_mutex_acquire`, `sys_mutex_release` 等接口。
+
+### 遇到的问题与学习点
+
+1.  **锁的核心概念**: 深入讨论了锁的本质作用，即“排队”，以保证对共享资源的互斥访问。明确了“洗手间和钥匙”模型，为后续的理解打下了基础。
+
+2.  **自旋锁 vs. 互斥锁**: 厘清了两种锁在“等待”策略上的根本区别：
+    *   **互斥锁**: “文明”地睡眠并让出CPU，适用于可能较长的等待。
+    *   **自旋锁**: “焦急”地忙等待并占用CPU，仅适用于可预见的、极短的等待。
+
+3.  **锁的嵌套实现**: 理解了“用一个轻量级的锁（自旋锁）去保护一个重量级的锁（互斥锁）的内部状态”这种分层设计思想，明确了两种锁在内核实现中的不同角色。
+
+4.  **单核环境下的自旋锁悖论**: 探讨了在单核CPU上，用于进程间同步的自旋锁会导致死锁的问题。明确了在当前实验中，自旋锁的主要意义在于学习一个通用的、可在多核或抢占式环境下工作的编程范式，并为未来Task 4中引入的中断处理提供保护。
+
+5.  **`release` 逻辑的细节**: 在实现 `do_mutex_lock_release` 时，围绕“当有进程在等待时，是应该解锁还是转移所有权”这一核心逻辑进行了反复的讨论和修正，最终确定了“所有权转移”（不改变锁状态，直接唤醒下一个进程）的正确模型，并修复了相关的并发和逻辑错误。
+
+---
+## Project 2, Task 3: 系统调用 (System Calls)
+
+### 已完成工作
+
+1.  **异常/中断入口设置**:
+    *   在 `init/main.c` 中调用 `init_exception()`，并在 `kernel/irq/irq.c` 中实现了该函数，用于初始化异常处理表 `exc_table`。
+    *   在 `arch/riscv/kernel/trap.S` 中实现了 `setup_exception`，将 `exception_handler_entry` 的地址写入了 `stvec` 寄存器，使得所有 S-mode 的异常和中断都会跳转到我们设定的入口点。
+
+2.  **上下文保存与恢复**:
+    *   在 `arch/riscv/kernel/entry.S` 中，实现了 `SAVE_CONTEXT` 和 `RESTORE_CONTEXT` 两个核心汇编宏。
+    *   `SAVE_CONTEXT`: 在进入异常处理前，在内核栈上精确地保存所有32个通用寄存器以及 `sstatus`, `sepc` 等CSR寄存器，为内核提供一个安全、独立的执行环境。
+    *   `RESTORE_CONTEXT`: 在异常处理返回前，从内核栈上恢复所有寄存器，确保用户程序能从被中断的地方无缝继续执行。
+
+3.  **异常分发与返回**:
+    *   实现了 `exception_handler_entry`，作为异常处理的统一入口，负责调用 C 函数 `interrupt_helper`。
+    *   实现了 `interrupt_helper`，它根据 `scause` 的值来区分是异常（Exception）还是中断（Interrupt），并将异常分发给 `handle_syscall`。
+    *   实现了 `ret_from_exception`，在异常处理结束后，通过 `sret` 指令安全地返回用户态。
+
+4.  **系统调用接口实现**:
+    *   **用户态**: 在 `tiny_libc/syscall.c` 中，实现了 `invoke_syscall` 函数，它通过 `ecall` 指令触发异常，是用户程序进入内核的桥梁。同时，将所有 `sys_*` 函数（如 `sys_sleep`）都修改为通过 `invoke_syscall` 来实现。
+    *   **内核态**: 在 `kernel/syscall/syscall.c` 中，实现了 `handle_syscall` 函数。它从保存的上下文中获取系统调用号和参数，并通过一个函数指针数组 `syscall[]` 来调用对应的内核函数（如 `do_sleep`）。
+
+5.  **`sleep` 系统调用实现**:
+    *   实现了 `do_sleep` 函数，它通过设置进程的 `wakeup_time` 并调用调度器来让当前进程“睡眠”。
+    *   实现了 `check_sleeping` 函数，它在每次调度前被调用，用于遍历 `sleep_queue`，将所有已经“睡醒”的进程唤醒并移入就绪队列。
+
+### 遇到的问题与学习点
+
+1.  **`do_scheduler` 的逻辑缺陷**:
+    *   在深入探讨中，我们发现了一个长期存在的逻辑问题：`do_scheduler` 函数会将所有 `TASK_BLOCKED` 状态的进程都放入 `sleep_queue`。
+    *   我们最终确认，这个缺陷仅影响了 `do_sleep` 的实现（导致了“假睡眠”问题），而 `do_mutex_lock_acquire` 因为实现了自己的“迷你调度器”，没有调用 `do_scheduler`，所以完美地避开了这个问题。
+    *   通过修正 `do_scheduler` 和 `do_sleep` 的代码，我们理清了“谁阻塞，谁负责入队”的设计原则。
+
+2.  **`do_mutex_lock_acquire` 的工作原理**:
+    *   我们进行了非常深入的模拟和分析，最终确认了用户当前的 `do_mutex_lock_acquire` 实现的有效性。
+    *   它并非一个传统的互斥锁，而是通过将一个**自旋锁**包装成了一个**阻塞锁**。互斥性由底层的自旋锁保证，而阻塞和唤醒则由 `block_queue` 和调度共同完成。
+    *   我们确认了，在当前的协作式、单核环境下，这个实现是有效的，并解释了为什么它在测试中表现为“等待锁”而不是发生数据竞争。
+
+3.  **上下文切换的细节**:
+    *   通过对“进程被唤醒后立即执行是否会导致错误”这一问题的反复探讨，我们澄清了内核上下文（由 `switch_to` 保存）和用户上下文（由 `SAVE_CONTEXT` 保存）的区别。
+    *   最终明确，唤醒操作只改变进程的逻辑状态，而不会破坏其保存在内核栈上的任何上下文快照，因此 `switch_to` 的恢复过程是绝对安全的。
+
+---
+

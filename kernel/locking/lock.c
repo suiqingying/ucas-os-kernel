@@ -7,7 +7,7 @@ mutex_lock_t mlocks[LOCK_NUM];
 int lock_used_num = 0;
 
 void init_locks(void) {
-  /* TODO: [p2-task2] initialize mlocks */
+  /* initialize mlocks */
   for (int i = 0; i < LOCK_NUM; i++) {
     mlocks[i].lock.status = UNLOCKED;
     mlocks[i].key = 0;
@@ -16,12 +16,12 @@ void init_locks(void) {
 }
 
 void spin_lock_init(spin_lock_t *lock) {
-  /* TODO: [p2-task2] initialize spin lock */
+  /* initialize spin lock */
   lock->status = UNLOCKED;
 }
 
 int spin_lock_try_acquire(spin_lock_t *lock) {
-  /* TODO: [p2-task2] try to acquire spin lock */
+  /* try to acquire spin lock */
   if (lock->status == UNLOCKED) {
     lock->status = LOCKED;
     return 1;
@@ -30,19 +30,19 @@ int spin_lock_try_acquire(spin_lock_t *lock) {
 }
 
 void spin_lock_acquire(spin_lock_t *lock) {
-  /* TODO: [p2-task2] acquire spin lock */
+  /* acquire spin lock */
   while (lock->status == LOCKED)
     ;
   lock->status = LOCKED;
 }
 
 void spin_lock_release(spin_lock_t *lock) {
-  /* TODO: [p2-task2] release spin lock */
+  /* release spin lock */
   lock->status = UNLOCKED;
 }
 
 int do_mutex_lock_init(int key) {
-  /* TODO: [p2-task2] initialize mutex lock */
+  /* initialize mutex lock */
   for (int i = 0; i < lock_used_num; i++) {
     if (mlocks[i].key == key)
       return i;
@@ -56,7 +56,7 @@ int do_mutex_lock_init(int key) {
 }
 
 void do_mutex_lock_acquire(int mlock_idx) {
-  /* TODO: [p2-task2] acquire mutex lock */
+  /* acquire mutex lock */
   if (spin_lock_try_acquire(&mlocks[mlock_idx].lock))
     return;
   // 获取锁失败
@@ -68,7 +68,7 @@ void do_mutex_lock_acquire(int mlock_idx) {
 }
 
 void do_mutex_lock_release(int mlock_idx) {
-  /* TODO: [p2-task2] release mutex lock */
+  /* release mutex lock */
   mutex_lock_t *lock = &mlocks[mlock_idx];
   list_node_t *head = &lock->block_queue, *p = head->next;
   // 阻塞队列为空，释放锁

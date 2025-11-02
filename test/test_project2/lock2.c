@@ -8,7 +8,7 @@
 // the Universe, and Everything" :)
 #define LOCK2_KEY 42
 
-static char blank[] = {"                                             "};
+static char blank[] = { "                                             " };
 
 int main(void)
 {
@@ -23,7 +23,6 @@ int main(void)
 
         sys_move_cursor(0, print_location);
         printf("> [TASK] Applying for a lock.\n");
-
         sys_yield();
 
         sys_mutex_acquire(mutex_id);
