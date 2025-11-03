@@ -89,6 +89,8 @@ typedef struct pcb
     uint64_t workload;
     int time_slice;
     int time_slice_remain;
+    uint64_t last_workload;
+    uint64_t lap_count; 
 } pcb_t;
 
 /* ready queue to run */
