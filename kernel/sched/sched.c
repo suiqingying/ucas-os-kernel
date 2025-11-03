@@ -22,6 +22,7 @@ LIST_HEAD(sleep_queue);
 pid_t process_id = 1;
 
 void do_scheduler(void) {
+    update_time_slices();
     // Check sleep queue to wake up PCBs
     check_sleeping();
         /************************************************************/
@@ -48,6 +49,7 @@ void do_scheduler(void) {
 
     printl("pid[%d]:is going to running\n", current_running->pid);
 
+    current_running->time_slice_remain = current_running->time_slice;
     // switch_to current_running
     switch_to(prior_running, current_running);
     printl("[%d] switch_to success!!!\n", current_running->pid);
@@ -115,4 +117,17 @@ pcb_t* get_pcb_from_node(list_node_t* node) {
             return &pcb[i];
     }
     return &pid0_pcb; // fail to find the task, return to kernel
+}
+
+void do_set_sche_workload(int workload) {
+    current_running->workload = workload;
+}
+
+void update_time_slices(void)
+{
+    for (int i = 0; i < NUM_MAX_TASK; i++) {
+        if (pcb[i].status == TASK_READY || pcb[i].status == TASK_RUNNING) {
+            pcb[i].time_slice = 5 + (pcb[i].workload / 10) + 1;
+        }
+    }
 }

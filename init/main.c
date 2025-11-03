@@ -86,8 +86,10 @@ static void init_pcb(void) {
     /* load needed tasks and init their corresponding PCB */
     // PCB for kernel
     uint64_t entry[NUM_MAX_TASK + 1]; /* entry of all tasks */
-    char needed_tasks[][16] = { "print1", "print2", "lock1", "lock2",
-                               "sleep",  "timer",  "fly" };
+    char needed_tasks[][16] = {
+        "print1", "print2", "lock1", "lock2", "sleep", "timer", "fly",
+        "fly1", "fly2", "fly3", "fly4", "fly5"
+    };
     uint64_t entry_addr;
     int tasknum = 0;
     pid0_pcb.status = TASK_RUNNING;
@@ -96,7 +98,7 @@ static void init_pcb(void) {
     init_pcb_stack(pid0_pcb.kernel_sp, pid0_pcb.user_sp,
         (uint64_t)ret_from_exception, &pid0_pcb);
     // load task by name;
-    for (int i = 0; i < 7; i++) {
+    for (int i = 7; i < 12; i++) {
         entry_addr = load_task_img(needed_tasks[i]);
         // create a PCB
         if (entry_addr != 0) {
@@ -107,13 +109,16 @@ static void init_pcb(void) {
             pcb[tasknum].status = TASK_READY;
             pcb[tasknum].cursor_x = 0;
             pcb[tasknum].cursor_y = 0;
+            pcb[tasknum].wakeup_time = 0;
+            pcb[tasknum].workload = 0;
+            // pcb[tasknum].time_slice = 10;
+            // pcb[tasknum].time_slice_remain = 10;
             init_pcb_stack(pcb[tasknum].kernel_sp, pcb[tasknum].user_sp, entry_addr,
                 &pcb[tasknum]);
             // add to ready queue
             add_node_to_q(&pcb[tasknum].list, &ready_queue);
 
-            if (++tasknum >
-                NUM_MAX_TASK) // total tasks should be less than the threshold
+            if (++tasknum > NUM_MAX_TASK) // total tasks should be less than the threshold
                 break;
         }
     }
@@ -134,6 +139,7 @@ static void init_syscall(void) {
     syscall[SYSCALL_LOCK_INIT] = (long (*)())do_mutex_lock_init;
     syscall[SYSCALL_LOCK_ACQ] = (long (*)())do_mutex_lock_acquire;
     syscall[SYSCALL_LOCK_RELEASE] = (long (*)())do_mutex_lock_release;
+    syscall[SYSCALL_SET_SCHE_WORKLOAD] = (long (*)())do_set_sche_workload;
 }
 /************************************************************/
 
@@ -171,12 +177,12 @@ int main(int app_info_loc, int app_info_size) {
     // NOTE: The function of sstatus.sie is different from sie's
     bios_set_timer(get_ticks() + TIMER_INTERVAL); // 设置第一次定时器中断
     // Infinite while loop, where CPU stays in a low-power state (QAQQQQQQQQQQQ)
+    enable_preempt();
     while (1) {
         // If you do non-preemptive scheduling, it's used to surrender control
         // do_scheduler();
 
         // If you do preemptive scheduling, they're used to enable CSR_SIE and wfi
-        enable_preempt();
         asm volatile("wfi");
     }
 

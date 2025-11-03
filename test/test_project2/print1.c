@@ -13,15 +13,3 @@ int main(void)
         // sys_yield();
     }
 }
-
-// int main(void)
-// {
-//     int print_location = 0;
-
-//     for (int i = 0;; i++)
-//     {
-//         kernel_move_cursor(0, print_location);
-//         kernel_print("> [TASK] This task is to test scheduler. (%d)", i, 0);
-//         kernel_yield();
-//     }
-// }
