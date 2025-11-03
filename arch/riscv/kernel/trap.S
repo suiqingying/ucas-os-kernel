@@ -6,8 +6,7 @@
 /* save exception_handler_entry into STVEC */
     la                       t0, exception_handler_entry
     csrw                     stvec, t0
-/* TODO:
-    [p2-task4]               enable interrupts globally */
-
+/* enable interrupts globally */
+    csrs sstatus, SR_SIE
     ret
     ENDPROC(setup_exception)
