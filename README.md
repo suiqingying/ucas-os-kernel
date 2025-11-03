@@ -83,3 +83,117 @@
 
 ---
 
+## Task 4: 抢占式调度 (Preemptive Scheduling)
+
+### 已完成工作
+
+1.  **开启中断**: 为了让内核能够响应中断，我们进行了两级中断使能：
+    *   **全局中断使能**: 在 `arch/riscv/kernel/trap.S` 的 `setup_exception` 函数中，通过以下指令打开了S模式的全局中断总开关：
+        ```assembly
+        csrs sstatus, SR_SIE
+        ```
+    *   **定时器中断源使能**: 在 `init/main.c` 中，通过调用 `enable_preempt()` 函数，打开了 `sie` 寄存器中所有S模式中断源的开关，其中包含了我们需要的 `STIE`（S模式定时器中断使能）。
+
+2.  **中断处理与分发**:
+    *   在 `kernel/irq/irq.c` 的 `init_exception` 函数中，我们将 `irq_table` 中断向量表中的对应项设置为 `handle_irq_timer` 函数的地址：
+        ```c
+        irq_table[IRQC_S_TIMER] = handle_irq_timer;
+        ```
+    *   `interrupt_helper` 函数现在可以根据 `scause` 寄存器的最高位判断出中断的发生，并根据中断类型码，通过 `irq_table` 准确地调用 `handle_irq_timer`。
+
+3.  **定时器中断处理**:
+    *   在 `handle_irq_timer` 中，我们实现了抢占式调度的核心逻辑。它主要负责两件事：
+        1.  调用 `bios_set_timer()` 来设置下一次定时器中断，确保时钟心跳的持续。
+        2.  调用 `do_scheduler()` 来强制触发任务调度，实现“抢占”。
+        ```c
+        void handle_irq_timer(regs_context_t *regs, uint64_t stval, uint64_t scause)
+        {
+            bios_set_timer(get_ticks() + TIMER_INTERVAL);
+            do_scheduler();
+        }
+        ```
+
+4.  **内核空闲循环**:
+    *   修改了 `init/main.c` 中的主循环，注释掉了 `do_scheduler()` 的主动调用，并替换为 `asm volatile("wfi");` 指令。这使得CPU在没有任务执行时，可以进入低功耗的等待中断状态，这是抢占式内核正确的空闲处理方式。
+        ```c
+        while (1) {
+            asm volatile("wfi");
+        }
+        ```
+
+### 遇到的问题与学习点
+
+1.  **`sstatus.SIE` vs `sie.STIE`**:
+    *   在讨论中，我们厘清了这两个关键控制位的区别。`sstatus` 中的 `SIE` 位是S模式中断的“总电闸”，而 `sie` 寄存器中的 `STIE` 位是定时器中断这一个“分路开关”。必须同时打开两者，定时器中断才能正常触发。这个“总闸-分闸”的比喻帮助我们深刻理解了RISC-V的中断控制机制。
+
+2.  **`csrs` vs `csrw`**:
+    *   我们详细探讨了这两条指令的差异。`csrs` (set) 执行的是按位或操作（`sstatus = sstatus | SR_SIE`），只设置目标位而不影响其他位，是精确的“开启”操作。而 `csrw` (write) 执行的是覆盖写操作（`sstatus = SR_SIE`），会清除其他所有位，这对于 `sstatus` 这样的多状态复合寄存器是灾难性的。这让我们明确了在修改CSR时，必须谨慎选择原子操作指令。
+
+---
+
+## Task 5: 复杂调度算法 (Complex Scheduling Algorithm)
+
+### 已完成工作
+
+1.  **`set_sche_workload` 系统调用**:
+    *   为了让用户程序能向内核报告进度，我们完整地实现了一个新的系统调用。这包括在 `unistd.h` 和 `syscall.h` 中定义系统调用号 `SYSCALL_SET_SCHE_WORKLOAD`，在 `tiny_libc` 中提供 `sys_set_sche_workload` 用户接口，并在内核的 `init_syscall` 中注册了 `do_set_sche_workload` 处理函数。
+
+2.  **内核态进度追踪 (圈数统计)**:
+    *   在 `pcb_t` 结构体中增加了 `last_workload` 和 `lap_count` 两个成员。
+    *   重写了 `do_set_sche_workload` 函数，使其不再是简单的赋值。它通过比较本次和上一次的 `workload` 值，能够智能地检测到飞机循环运动导致的“回环”现象。一旦检测到回环，就将 `lap_count` 加一。
+    *   通过以下核心逻辑，内核成功地将被循环重置的坐标值，“解算”成了一个能真实反映总进度的、单调递增的 `workload` 值，并将其存回 `pcb->workload`。
+        ```c
+        // In do_set_sche_workload(current_workload)
+        if (current_workload < task->last_workload && 
+            (task->last_workload - current_workload) > (SCREEN_WIDTH / 2)) { // SCREEN_WIDTH 为屏幕宽度
+            task->lap_count++; 
+        }
+        uint64_t true_workload = (task->lap_count * SCREEN_WIDTH) + current_workload;
+        task->workload = true_workload;
+        task->last_workload = current_workload;
+        ```
+
+3.  **加权轮转调度 (Weighted Round-Robin)**:
+    *   **时间片概念引入**: 在 `pcb_t` 中增加了 `time_slice` (时间片配额) 和 `time_slice_remain` (剩余时间片) 成员。
+    *   **中断处理修改**: `handle_irq_timer` 的逻辑被彻底修改。它不再是每次都触发调度，而是作为“倒计时器”，每次中断只将当前任务的 `time_slice_remain` 减一。只有当 `time_slice_remain` 耗尽为0时，才调用 `do_scheduler`。
+        ```c
+        // In handle_irq_timer()
+        if (current_running->time_slice_remain > 0) {
+            current_running->time_slice_remain--;
+        }
+        if (current_running->time_slice_remain == 0) {
+            do_scheduler();
+        }
+        ```
+    *   **调度器修改**: `do_scheduler` 在选出下一个任务后，会负责将该任务的 `time_slice_remain` 重置为它的 `time_slice` 配额。
+        ```c
+        // In do_scheduler()
+        current_running = get_pcb_from_node(next_node);
+        current_running->time_slice_remain = current_running->time_slice;
+        ```
+
+4.  **动态时间片计算**:
+    *   实现了 `update_time_slices` 函数。该函数作为“会计”，在每次调度前被调用。
+    *   它通过遍历所有就绪任务，找出 `workload` 最大的（跑得最快的），然后根据每个任务与最快者之间的差距 `lag`，动态地为每个任务计算出下一轮的时间片配额。
+        ```c
+        // In update_time_slices()
+        int64_t lag = max_workload - pcb->workload;
+        pcb->time_slice = (lag / 30) + 1;
+        ```
+
+### 遇到的问题与学习点
+
+1.  **调度算法的初步探索与修正**:
+    *   我们最初构思的“总是选择 `workload` 最小/最大的任务”是一个严格优先级算法。经过讨论，我们很快意识到这会导致任务饥饿，无法满足“所有飞机都在飞”的视觉要求，因此果断放弃了该思路，转向了更公平的加权轮转模型。
+
+2.  **“循环Workload”问题与内核态解算**:
+    *   这是本次任务中最有价值的发现。我们意识到，用户程序基于屏幕坐标的循环 `workload` 是一个有缺陷的、非线性的进度指标，它会严重误导调度器。
+    *   我们没有选择修改用户程序，而是在内核的 `do_set_sche_workload` 中设计并实现了“圈数统计”逻辑，成功地在内核态将被污染的数据“清洗”和“还原”成了真实、单调的进度值。这体现了操作系统作为底层服务，应具备兼容和适应上层应用的能力。
+
+3.  **调度器参数调优 (Tuning)**:
+    *   我们深入探讨了 `TIMER_INTERVAL` 和时间片计算公式中“魔法数字”的意义。
+    *   明确了 `TIMER_INTERVAL` 定义了调度的“精度”和“开销”之间的平衡。我们通过实验，最终选择了 `(time_base / 5000)` (即0.2ms) 作为时钟频率，因为它在提供了流畅视觉效果的同时，也在可接受的开销范围内。
+        ```c
+        #define TIMER_INTERVAL (time_base / 5000)
+        ```
+    *   同时，`pcb->time_slice = (lag / 30) + 1;` 中的 `30` 和 `1` 也是调优的结果。`+1` 保证了即使是最领先的任务也能获得最小时间片，不会“停下”；而 `30` 这个系数则控制了落后任务“追赶”的积极程度。整个过程让我们体会到了操作系统设计中，理论结合实验调优的重要性。

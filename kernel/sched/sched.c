@@ -129,15 +129,9 @@ void do_set_sche_workload(int workload) {
 }
 
 void update_time_slices(void) {
-    // for (int i = 0; i < NUM_MAX_TASK; i++) {
-    //     if (pcb[i].status == TASK_READY || pcb[i].status == TASK_RUNNING) {
-    //         pcb[i].time_slice = 5 + (pcb[i].workload / 10) + 1;
-    //     }
-    // }
     list_node_t* node = ready_queue.next;
     uint64_t max_workload = -1;
-    // 1. 找出当前所有就绪任务中最小的 workload（最领先的飞机）
-    //    由于 do_set_sche_workload 的翻译，这里的 pcb->workload 已经是“真实”进度
+    //  找出当前最领先的飞机
     while (node != &ready_queue) {
         pcb_t* pcb = get_pcb_from_node(node);
         if (pcb->status == TASK_READY && (max_workload == -1 || pcb->workload > max_workload)) {
@@ -149,16 +143,15 @@ void update_time_slices(void) {
     // 如果没有就绪任务，则不更新
     if (max_workload == -1) return;
 
-    // 2. 根据与最小 workload 的差距（lag），重新计算每个任务的时间片配额
+    // 根据与最大 workload 的差距（lag），重新计算每个任务的时间片配额
     node = ready_queue.next;
     while (node != &ready_queue) {
         pcb_t* pcb = get_pcb_from_node(node);
         if (pcb->status == TASK_READY) {
             int64_t lag = max_workload - pcb->workload;
 
-            // 基础时间片为5，并根据落后程度增加
-            // 加1是为了防止 lag/10 为0
-            pcb->time_slice = 5 + (lag / 10) + 1;
+            // 基础时间片为1，并根据落后程度增加
+            pcb->time_slice = (lag / 30) + 1;
         }
         node = node->next;
     }

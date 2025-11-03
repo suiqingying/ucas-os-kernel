@@ -172,7 +172,7 @@ int main(int app_info_loc, int app_info_size) {
     // Init screen (QAQ)
     init_screen();
     printk("> [INIT] SCREEN initialization succeeded.\n");
-
+    printk("> [INIT] CPU time_base: %lu Hz\n", time_base); 
     // TODO: [p2-task4] Setup timer interrupt and enable all interrupt globally
     // NOTE: The function of sstatus.sie is different from sie's
     bios_set_timer(get_ticks() + TIMER_INTERVAL); // 设置第一次定时器中断
