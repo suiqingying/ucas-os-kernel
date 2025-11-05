@@ -19,6 +19,7 @@ static char plane3[] = { "    //   " };
 int main(void) {
     int j = 5;
     int remain_length;
+    sys_set_checkpoint(CHECK_POINT);
 
     while (1) {
         int clk = sys_get_tick();

@@ -19,7 +19,8 @@ int main(void)
 {
     int j = 11;
     int remain_length;
-
+    sys_set_checkpoint(CHECK_POINT);
+    
     while (1)
     {
         int clk = sys_get_tick();

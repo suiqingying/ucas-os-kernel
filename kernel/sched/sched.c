@@ -38,8 +38,6 @@ void do_scheduler(void) {
             current_running->status = TASK_READY;
             add_node_to_q(&current_running->list, &ready_queue);
         }
-        // else if (current_running->status == TASK_BLOCKED)
-        //     add_node_to_q(&current_running->list, &sleep_queue);
     }
     list_node_t* tmp = seek_ready_node();
 
@@ -118,40 +116,63 @@ pcb_t* get_pcb_from_node(list_node_t* node) {
     return &pid0_pcb; // fail to find the task, return to kernel
 }
 
-void do_set_sche_workload(int workload) {
-    current_running->workload = workload;
-    pcb_t* task = current_running;
-    if (workload < task->last_workload)
-        task->lap_count++;
-    uint64_t true_workload = (task->lap_count * LENGTH) + LENGTH - workload;
-    task->workload = true_workload;
-    task->last_workload = workload;
+void do_set_sche_workload(uint64_t remain_length) {
+    if (remain_length > current_running->remain_length) {
+        current_running->lap_count++;
+    }
+    current_running->remain_length = remain_length;
+}
+void do_set_checkpoint(uint64_t checkpoint) {
+    current_running->checkpoint = checkpoint;
 }
 
 void update_time_slices(void) {
+    const int D = 60; // Total distance of the track
+    const int K = 30; // A scaling factor for the lag
+
+    // Step 1: For each ready task, calculate its normalized progress
     list_node_t* node = ready_queue.next;
-    uint64_t max_workload = -1;
-    //  找出当前最领先的飞机
     while (node != &ready_queue) {
         pcb_t* pcb = get_pcb_from_node(node);
-        if (pcb->status == TASK_READY && (max_workload == -1 || pcb->workload > max_workload)) {
-            max_workload = pcb->workload;
+        if (pcb->pid != 0) { // Only schedule user tasks
+            uint64_t lap_progress = (uint64_t)pcb->lap_count * 2000;
+            uint64_t distance_in_lap = D - pcb->remain_length;
+            uint64_t checkpoint = pcb->checkpoint;
+
+            if (checkpoint > 0 && checkpoint < D) {
+                if (distance_in_lap < checkpoint) {
+                    // Pre-checkpoint phase: 0-1000 points for this lap
+                    pcb->normalized_progress = lap_progress + (distance_in_lap * 1000) / checkpoint;
+                }
+                else {
+                    // Post-checkpoint phase: 1000-2000 points for this lap
+                    pcb->normalized_progress = lap_progress + 1000 + ((distance_in_lap - checkpoint) * 1000) / (D - checkpoint);
+                }
+            }
         }
         node = node->next;
     }
 
-    // 如果没有就绪任务，则不更新
-    if (max_workload == -1) return;
-
-    // 根据与最大 workload 的差距（lag），重新计算每个任务的时间片配额
+    // Step 2: Find the max progress (the leader)
+    uint64_t max_progress = 0;
     node = ready_queue.next;
     while (node != &ready_queue) {
         pcb_t* pcb = get_pcb_from_node(node);
-        if (pcb->status == TASK_READY) {
-            int64_t lag = max_workload - pcb->workload;
+        if (pcb->pid != 0) {
+            if (pcb->normalized_progress > max_progress) {
+                max_progress = pcb->normalized_progress;
+            }
+        }
+        node = node->next;
+    }
 
-            // 基础时间片为1，并根据落后程度增加
-            pcb->time_slice = (lag / 30) + 1;
+    // Step 3: Assign time slices based on lag from the leader
+    node = ready_queue.next;
+    while (node != &ready_queue) {
+        pcb_t* pcb = get_pcb_from_node(node);
+        if (pcb->pid != 0) {
+            uint64_t lag = max_progress - pcb->normalized_progress;
+            pcb->time_slice = (lag / K) + 1;
         }
         node = node->next;
     }

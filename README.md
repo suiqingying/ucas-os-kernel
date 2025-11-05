@@ -133,67 +133,120 @@
 
 ## Task 5: 复杂调度算法 (Complex Scheduling Algorithm)
 
-### 已完成工作
+
+
+### 初步实现：基于“总行动分”的调度器
+
+
+
+我们最初实现了一个基于加权轮转的动态调度器，其核心思想是追踪并均衡每个进程的“总行动分”。
+
+
 
 1.  **`set_sche_workload` 系统调用**:
-    *   为了让用户程序能向内核报告进度，我们完整地实现了一个新的系统调用。这包括在 `unistd.h` 和 `syscall.h` 中定义系统调用号 `SYSCALL_SET_SCHE_WORKLOAD`，在 `tiny_libc` 中提供 `sys_set_sche_workload` 用户接口，并在内核的 `init_syscall` 中注册了 `do_set_sche_workload` 处理函数。
 
-2.  **内核态进度追踪 (圈数统计)**:
+    *   实现了一个单一参数的 `set_sche_workload` 系统调用，用户程序通过它来汇报一个循环变化的 `workload` 值（通常是基于屏幕坐标）。
+
+
+
+2.  **内核态进度追踪 (步数统计)**:
+
     *   在 `pcb_t` 结构体中增加了 `last_workload` 和 `lap_count` 两个成员。
-    *   重写了 `do_set_sche_workload` 函数，使其不再是简单的赋值。它通过比较本次和上一次的 `workload` 值，能够智能地检测到飞机循环运动导致的“回环”现象。一旦检测到回环，就将 `lap_count` 加一。
-    *   通过以下核心逻辑，内核成功地将被循环重置的坐标值，“解算”成了一个能真实反映总进度的、单调递增的 `workload` 值，并将其存回 `pcb->workload`。
+
+    *   在 `do_set_sche_workload` 函数中，通过比较本次和上一次的 `workload` 值，实现了一套“步数统计”逻辑。
+
+    *   通过以下核心逻辑，内核成功地将被循环重置的坐标值，“解算”成了一个基于“总行动步数”的、单调递增的抽象“行动分” `workload` 值，并将其存回 `pcb->workload`。
+
         ```c
+
         // In do_set_sche_workload(current_workload)
+
         if (current_workload < task->last_workload && 
+
             (task->last_workload - current_workload) > (SCREEN_WIDTH / 2)) { // SCREEN_WIDTH 为屏幕宽度
+
             task->lap_count++; 
+
         }
+
         uint64_t true_workload = (task->lap_count * SCREEN_WIDTH) + current_workload;
+
         task->workload = true_workload;
+
         task->last_workload = current_workload;
+
         ```
+
+
 
 3.  **加权轮转调度 (Weighted Round-Robin)**:
+
     *   **时间片概念引入**: 在 `pcb_t` 中增加了 `time_slice` (时间片配额) 和 `time_slice_remain` (剩余时间片) 成员。
-    *   **中断处理修改**: `handle_irq_timer` 的逻辑被彻底修改。它不再是每次都触发调度，而是作为“倒计时器”，每次中断只将当前任务的 `time_slice_remain` 减一。只有当 `time_slice_remain` 耗尽为0时，才调用 `do_scheduler`。
-        ```c
-        // In handle_irq_timer()
-        if (current_running->time_slice_remain > 0) {
-            current_running->time_slice_remain--;
-        }
-        if (current_running->time_slice_remain == 0) {
-            do_scheduler();
-        }
-        ```
+
+    *   **中断处理修改**: `handle_irq_timer` 的逻辑被修改为“倒计时器”，只在当前任务的 `time_slice_remain` 耗尽为0时，才调用 `do_scheduler`。
+
     *   **调度器修改**: `do_scheduler` 在选出下一个任务后，会负责将该任务的 `time_slice_remain` 重置为它的 `time_slice` 配额。
-        ```c
-        // In do_scheduler()
-        current_running = get_pcb_from_node(next_node);
-        current_running->time_slice_remain = current_running->time_slice;
-        ```
+
+
 
 4.  **动态时间片计算**:
-    *   实现了 `update_time_slices` 函数。该函数作为“会计”，在每次调度前被调用。
-    *   它通过遍历所有就绪任务，找出 `workload` 最大的（跑得最快的），然后根据每个任务与最快者之间的差距 `lag`，动态地为每个任务计算出下一轮的时间片配额。
+
+    *   实现了 `update_time_slices` 函数。它在每次调度前被调用，找出“总行动分”最高的领跑者，然后根据每个任务与领跑者之间的分数差距 `lag`，动态地计算出下一轮的时间片配额。
+
         ```c
+
         // In update_time_slices()
+
         int64_t lag = max_workload - pcb->workload;
+
         pcb->time_slice = (lag / 30) + 1;
+
         ```
 
-### 遇到的问题与学习点
 
-1.  **调度算法的初步探索与修正**:
-    *   我们最初构思的“总是选择 `workload` 最小/最大的任务”是一个严格优先级算法。经过讨论，我们很快意识到这会导致任务饥饿，无法满足“所有飞机都在飞”的视觉要求，因此果断放弃了该思路，转向了更公平的加权轮转模型。
 
-2.  **“循环Workload”问题与内核态解算**:
-    *   这是本次任务中最有价值的发现。我们意识到，用户程序基于屏幕坐标的循环 `workload` 是一个有缺陷的、非线性的进度指标，它会严重误导调度器。
-    *   我们没有选择修改用户程序，而是在内核的 `do_set_sche_workload` 中设计并实现了“圈数统计”逻辑，成功地在内核态将被污染的数据“清洗”和“还原”成了真实、单调的进度值。这体现了操作系统作为底层服务，应具备兼容和适应上层应用的能力。
+### 遇到的问题与迭代
 
-3.  **调度器参数调优 (Tuning)**:
-    *   我们深入探讨了 `TIMER_INTERVAL` 和时间片计算公式中“魔法数字”的意义。
-    *   明确了 `TIMER_INTERVAL` 定义了调度的“精度”和“开销”之间的平衡。我们通过实验，最终选择了 `(time_base / 5000)` (即0.2ms) 作为时钟频率，因为它在提供了流畅视觉效果的同时，也在可接受的开销范围内。
-        ```c
-        #define TIMER_INTERVAL (time_base / 5000)
-        ```
-    *   同时，`pcb->time_slice = (lag / 30) + 1;` 中的 `30` 和 `1` 也是调优的结果。`+1` 保证了即使是最领先的任务也能获得最小时间片，不会“停下”；而 `30` 这个系数则控制了落后任务“追赶”的积极程度。整个过程让我们体会到了操作系统设计中，理论结合实验调优的重要性。
+
+
+初步的调度器虽然能够让慢速飞机获得更多时间片，实现了基本的追赶效果，但在面对 `guidebook` 中复杂的同步要求时，遇到了瓶颈：
+
+
+
+*   **无法满足“分阶段”同步**：`guidebook` 要求所有飞机在**同一时刻**到达**各自不同**的检查点，并在之后**又在同一时刻**到达终点。
+
+*   **单一指标的局限性**：我们原有的“总行动分”是一个单一的进度指标。试图均衡这一个指标，其效果等同于让所有飞机“齐头并进”。这或许能满足“同时到达终点”的要求，但**无法满足**“在同一时刻到达不同检查点”的要求。
+
+
+
+为了解决这个矛盾，我们废弃了原有的实现，设计并实现了一个全新的方案。
+
+
+
+### 最终方案：“归一化进度”调度器
+
+
+
+1.  **核心思想：“归一化进度”**
+
+    *   新算法的核心是计算一个“归一化进度”值。它代表进程在当前阶段（检查点前或检查点后）所完成的百分比，并结合圈数，形成一个能精确反映任务真实进度的、单调递增的全局进度指标。调度器的目标就是让所有进程的此进度值保持一致。
+
+
+
+2.  **新增 `sys_set_checkpoint` 系统调用**
+
+    *   为了让内核获知每个任务的检查点，我们增加了一个新的系统调用。`fly` 程序在启动时调用一次，将自己的检查点位置报告给内核。
+
+
+
+3.  **重构调度逻辑**
+
+    *   **`pcb_t` 结构体**：更新为 `remain_length`, `checkpoint`, `normalized_progress`, `lap_count` 等新成员。
+
+    *   **`do_set_sche_workload`**：职责简化，只负责更新 `remain_length` 和 `lap_count`。
+
+    *   **`update_time_slices`**：被完全重写，以实现“归一化进度”的计算、领跑者的寻找，以及基于“进度差距”的时间片动态分配。`K` 值经过调优设置为 `100`，以获得最佳视觉效果。
+
+
+
+通过这次迭代，新的调度器不再是一个简单的均衡器，而是一个能够理解和执行多阶段同步任务的、更智能的控制器，最终完美地满足了 `guidebook` 的要求。

@@ -86,11 +86,12 @@ typedef struct pcb
     uint64_t wakeup_time;
 
     /* Task 5*/
-    uint64_t workload;
     int time_slice;
     int time_slice_remain;
-    uint64_t last_workload;
-    uint64_t lap_count; 
+    uint64_t remain_length;
+    uint64_t checkpoint;
+    uint64_t normalized_progress;
+    int lap_count;
 } pcb_t;
 
 /* ready queue to run */
@@ -116,7 +117,8 @@ pcb_t * get_pcb_from_node(list_node_t* node);
 void do_block(list_node_t *, list_head *queue);
 void do_unblock(list_node_t *);
 
-void do_set_sche_workload(int workload);
+void do_set_sche_workload(uint64_t remain_length);
+void do_set_checkpoint(uint64_t checkpoint);
 void update_time_slices(void);
 /************************************************************/
 /* Do not touch this comment. Reserved for future projects. */

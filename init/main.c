@@ -98,7 +98,7 @@ static void init_pcb(void) {
     init_pcb_stack(pid0_pcb.kernel_sp, pid0_pcb.user_sp,
         (uint64_t)ret_from_exception, &pid0_pcb);
     // load task by name;
-    for (int i = 7; i < 12; i++) {
+    for (int i = 0; i < 7; i++) {
         entry_addr = load_task_img(needed_tasks[i]);
         // create a PCB
         if (entry_addr != 0) {
@@ -110,9 +110,12 @@ static void init_pcb(void) {
             pcb[tasknum].cursor_x = 0;
             pcb[tasknum].cursor_y = 0;
             pcb[tasknum].wakeup_time = 0;
-            pcb[tasknum].workload = 0;
-            // pcb[tasknum].time_slice = 10;
-            // pcb[tasknum].time_slice_remain = 10;
+            pcb[tasknum].remain_length = 60; // 初始剩余距离为总长度
+            pcb[tasknum].checkpoint = 0;    // 检查点由用户程序设置，初始为0
+            pcb[tasknum].normalized_progress = 0; // 初始归一化进度为0
+            pcb[tasknum].lap_count = 0;
+            pcb[tasknum].time_slice = 1;
+            pcb[tasknum].time_slice_remain = 1;
             init_pcb_stack(pcb[tasknum].kernel_sp, pcb[tasknum].user_sp, entry_addr,
                 &pcb[tasknum]);
             // add to ready queue
@@ -140,6 +143,7 @@ static void init_syscall(void) {
     syscall[SYSCALL_LOCK_ACQ] = (long (*)())do_mutex_lock_acquire;
     syscall[SYSCALL_LOCK_RELEASE] = (long (*)())do_mutex_lock_release;
     syscall[SYSCALL_SET_SCHE_WORKLOAD] = (long (*)())do_set_sche_workload;
+    syscall[SYSCALL_SET_CHECKPOINT] = (long (*)())do_set_checkpoint;
 }
 /************************************************************/
 
@@ -172,7 +176,7 @@ int main(int app_info_loc, int app_info_size) {
     // Init screen (QAQ)
     init_screen();
     printk("> [INIT] SCREEN initialization succeeded.\n");
-    printk("> [INIT] CPU time_base: %lu Hz\n", time_base); 
+    printk("> [INIT] CPU time_base: %lu Hz\n", time_base);
     // TODO: [p2-task4] Setup timer interrupt and enable all interrupt globally
     // NOTE: The function of sstatus.sie is different from sie's
     bios_set_timer(get_ticks() + TIMER_INTERVAL); // 设置第一次定时器中断

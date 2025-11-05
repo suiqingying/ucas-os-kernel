@@ -35,7 +35,6 @@ void handle_irq_timer(regs_context_t *regs, uint64_t stval, uint64_t scause)
     if (current_running->time_slice_remain == 0) {
         do_scheduler();
     }
-    // do_scheduler();
 }
 
 void init_exception()

@@ -6,8 +6,7 @@
 static const long IGNORE = 0L;
 
 static long invoke_syscall(long sysno, long arg0, long arg1, long arg2,
-    long arg3, long arg4)
-{
+    long arg3, long arg4) {
     /* implement invoke_syscall via inline assembly */
     // 对应 RISC-V 调用约定，a0-a4 是参数，a7 是系统调用号
     register long a0_reg asm("a0") = arg0;
@@ -22,7 +21,7 @@ static long invoke_syscall(long sysno, long arg0, long arg1, long arg2,
         : "+r"(a0_reg)                         /* a0 is in/out: result returned in a0 */
         : "r"(a1_reg), "r"(a2_reg), "r"(a3_reg), "r"(a4_reg), "r"(a7_reg)
         : "memory"
-    );
+        );
 
     return a0_reg;
 }
@@ -77,11 +76,13 @@ void sys_sleep(uint32_t time) {
     invoke_syscall(SYSCALL_SLEEP, (long)time, IGNORE, IGNORE, IGNORE, IGNORE);
 }
 
-void sys_set_sche_workload(uint64_t workload) {
+void sys_set_sche_workload(uint64_t remain_length) {
     /* call invoke_syscall to implement sys_set_sche_workload */
-    invoke_syscall(SYSCALL_SET_SCHE_WORKLOAD, (long)workload, IGNORE, IGNORE, IGNORE, IGNORE);
+    invoke_syscall(SYSCALL_SET_SCHE_WORKLOAD, (long)remain_length, IGNORE, IGNORE, IGNORE, IGNORE);
 }
-
+void sys_set_checkpoint(uint64_t checkpoint) {
+    invoke_syscall(SYSCALL_SET_CHECKPOINT, (long)checkpoint, IGNORE, IGNORE, IGNORE, IGNORE);
+}
 /************************************************************/
 /* Do not touch this comment. Reserved for future projects. */
 /************************************************************/
