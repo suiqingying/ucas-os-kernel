@@ -18,6 +18,8 @@
 main:
 	// fence on all memory and I/O
 	fence
+    // a0 is mhartid
+	bnez a0, secondary
 
 	// call BIOS to print string "It's bootblock!"
 	la a0, msg
@@ -41,7 +43,17 @@ main:
 	// jump to kernel to start UCAS-OS
 	jal kernel
 	/************************************************************/
-	/* Do not touch this comment. Reserved for future projects. */
+secondary:
+	/* TODO [P3-task3]: 
+	 * 1. Mask all interrupts
+	 * 2. let stvec pointer to kernel_main
+	 * 3. enable software interrupt for ipi
+	 */
+
+wait_for_wakeup:
+	wfi
+	j wait_for_wakeup
+
 	/************************************************************/
 // while(1) --> stop here
 stop:
