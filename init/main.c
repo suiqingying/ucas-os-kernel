@@ -33,16 +33,6 @@ static void init_jmptab(void) {
     jmptab[QEMU_LOGGING] = (volatile long (*)())qemu_logging;
     jmptab[SET_TIMER] = (volatile long (*)())set_timer;
     jmptab[READ_FDT] = (volatile long (*)())read_fdt;
-    jmptab[MOVE_CURSOR] = (volatile long (*)())screen_move_cursor;
-    jmptab[WRITE] = (volatile long (*)())screen_write;
-    jmptab[REFLUSH] = (volatile long (*)())screen_reflush;
-    jmptab[PRINT] = (volatile long (*)())printk;
-    jmptab[YIELD] = (volatile long (*)())do_scheduler;
-    jmptab[MUTEX_INIT] = (volatile long (*)())do_mutex_lock_init;
-    jmptab[MUTEX_ACQ] = (volatile long (*)())do_mutex_lock_acquire;
-    jmptab[MUTEX_RELEASE] = (volatile long (*)())do_mutex_lock_release;
-
-    // TODO: [p2-task1] (S-core) initialize system call table.
 }
 
 static void init_task_info(int app_info_loc, int app_info_size) {
