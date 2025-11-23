@@ -79,6 +79,7 @@ static void init_pcb(void) {
     pid0_pcb.status = TASK_RUNNING;
     pid0_pcb.list.prev = NULL;
     pid0_pcb.list.next = NULL;
+    init_pcb_stack(pid0_pcb.kernel_sp, pid0_pcb.user_sp, (uint64_t)ret_from_exception, &pid0_pcb, 0, NULL);
     for (int i = 0; i < NUM_MAX_TASK; i++)
         pcb[i].status = TASK_EXITED;
     /* remember to initialize 'current_running' */
@@ -107,6 +108,22 @@ static void init_syscall(void) {
     syscall[SYSCALL_LOCK_INIT] = (long (*)())do_mutex_lock_init;
     syscall[SYSCALL_LOCK_ACQ] = (long (*)())do_mutex_lock_acquire;
     syscall[SYSCALL_LOCK_RELEASE] = (long (*)())do_mutex_lock_release;
+    syscall[SYSCALL_BARR_INIT] = (long (*)())do_barrier_init;
+    syscall[SYSCALL_BARR_WAIT] = (long (*)())do_barrier_wait;
+    syscall[SYSCALL_BARR_DESTROY] = (long (*)())do_barrier_destroy;
+    syscall[SYSCALL_COND_INIT] = (long (*)())do_condition_init;
+    syscall[SYSCALL_COND_WAIT] = (long (*)())do_condition_wait;
+    syscall[SYSCALL_COND_SIGNAL] = (long (*)())do_condition_signal;
+    syscall[SYSCALL_COND_BROADCAST] = (long (*)())do_condition_broadcast;
+    syscall[SYSCALL_COND_DESTROY] = (long (*)())do_condition_destroy;
+    syscall[SYSCALL_SEMA_INIT] = (long (*)())do_semaphore_init;
+    syscall[SYSCALL_SEMA_UP] = (long (*)())do_semaphore_up;
+    syscall[SYSCALL_SEMA_DOWN] = (long (*)())do_semaphore_down;
+    syscall[SYSCALL_SEMA_DESTROY] = (long (*)())do_semaphore_destroy;
+    syscall[SYSCALL_MBOX_OPEN] = (long (*)())do_mbox_open;
+    syscall[SYSCALL_MBOX_CLOSE] = (long (*)())do_mbox_close;
+    syscall[SYSCALL_MBOX_SEND] = (long (*)())do_mbox_send;
+    syscall[SYSCALL_MBOX_RECV] = (long (*)())do_mbox_recv;
 }
 /************************************************************/
 
@@ -127,6 +144,18 @@ int main(int app_info_loc, int app_info_size) {
     // Init lock mechanism o(´^｀)o
     init_locks();
     printk("> [INIT] Lock mechanism initialization succeeded.\n");
+
+    // Init barrier mechanism o(´^｀)o
+    init_barriers();
+    printk("> [INIT] Barrier mechanism initialization succeeded.\n");
+
+    // Init condition variable mechanism o(´^｀)o
+    init_conditions();
+    printk("> [INIT] Condition variable initialization succeeded.\n");
+
+    // Init mailbox mechanism o(´^｀)o
+    init_mbox();
+    printk("> [INIT] Mailbox mechanism initialization succeeded.\n");
 
     // Init interrupt (^_^)
     init_exception();

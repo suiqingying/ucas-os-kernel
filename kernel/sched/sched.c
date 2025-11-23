@@ -80,6 +80,7 @@ void do_unblock(list_node_t *pcb_node) {
 
 list_node_t *seek_ready_node() {
     list_node_t *p = ready_queue.next;
+    if (p == &ready_queue) return &pid0_pcb.list;
     delete_node_from_q(p);
     return p;
 }
@@ -143,6 +144,7 @@ void pcb_release(pcb_t *p) {
 
 int task_num = 0;
 pid_t do_exec(char *name, int argc, char *argv[]) {
+    // printk("argc: %d\n", argc);
     char **argv_ptr;
     int index = search_free_pcb();
     if (index == -1) return 0;
@@ -177,6 +179,7 @@ pid_t do_exec(char *name, int argc, char *argv[]) {
         add_node_to_q(&pcb[index].list, &ready_queue);
         // 进程数加一
         task_num++;
+        // printk("%d\n",task_num);
     }
     return pcb[index].pid; // 返回pid值
 }
@@ -210,10 +213,9 @@ int do_waitpid(pid_t pid) {
     }
     return 0;
 }
-
+/* waitpid 的设计应该是当前进程等待指定的进程，而不是所有进程都等待该进程 */
 void do_process_show() {
     static char *stat_str[3] = {"BLOCKED", "RUNNING", "READY"};
-    screen_write("[Process table]:\n");
     for (int i = 0; i < NUM_MAX_TASK; i++) {
         if (pcb[i].status != TASK_EXITED)
             printk("[%d] PID : %d  STATUS : %s \n", i, pcb[i].pid, stat_str[pcb[i].status]);

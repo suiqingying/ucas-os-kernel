@@ -4,7 +4,6 @@
 #include <stdint.h>
 typedef int32_t pid_t;
 
-
 void sys_sleep(uint32_t time);
 void sys_yield(void);
 void sys_write(char *buff);
@@ -15,39 +14,43 @@ long sys_get_tick(void);
 int sys_mutex_init(int key);
 void sys_mutex_acquire(int mutex_idx);
 void sys_mutex_release(int mutex_idx);
-void sys_set_sche_workload(uint64_t remain_length);
-void sys_set_checkpoint(uint64_t checkpoint);
+
 /************************************************************/
 /* ps, getchar */
 void sys_ps(void);
-int  sys_getchar(void);
+int sys_getchar(void);
 void sys_write_ch(char);
 void sys_clear(void);
 void sys_list(void);
 
 /* exec, exit, kill waitpid */
-pid_t  sys_exec(char *name, int argc, char **argv);
+pid_t sys_exec(char *name, int argc, char **argv);
 
 void sys_exit(void);
-int  sys_kill(pid_t pid);
-int  sys_waitpid(pid_t pid);
+int sys_kill(pid_t pid);
+int sys_waitpid(pid_t pid);
 pid_t sys_getpid();
 
-
-/* TODO: [P3 task2] barrier */ 
-int  sys_barrier_init(int key, int goal);
+/* barrier */
+int sys_barrier_init(int key, int goal);
 void sys_barrier_wait(int bar_idx);
 void sys_barrier_destroy(int bar_idx);
 
-/* TODO: [P3 task2] condition */ 
+/* condition */
 int sys_condition_init(int key);
 void sys_condition_wait(int cond_idx, int mutex_idx);
 void sys_condition_signal(int cond_idx);
 void sys_condition_broadcast(int cond_idx);
 void sys_condition_destroy(int cond_idx);
 
-/* TODO: [P3 task2] mailbox */ 
-int sys_mbox_open(char * name);
+/*semaphore*/
+int sys_semaphore_init(int key, int init);
+void sys_semaphore_up(int sema_idx);
+void sys_semaphore_down(int sema_idx);
+void sys_semaphore_destroy(int sema_idx);
+
+/* mailbox */
+int sys_mbox_open(char *name);
 void sys_mbox_close(int mbox_id);
 int sys_mbox_send(int mbox_idx, void *msg, int msg_length);
 int sys_mbox_recv(int mbox_idx, void *msg, int msg_length);

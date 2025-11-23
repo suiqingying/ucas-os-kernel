@@ -107,6 +107,8 @@ int main(void) {
                 exec_argv[i - 1] = argv[i];
                 // printf("exec_argv[%d]: %s\n", i - 1, exec_argv[i - 1]);
             }
+            // printf("exec_argc: %d\n", exec_argc);
+            // printf("wait or nowait: %d\n", no_wait);
             pid_t pid = sys_exec(argv[1], exec_argc, exec_argv);
             if (pid == 0) {
                 printf("Error: exec failed!\n");
@@ -114,7 +116,7 @@ int main(void) {
                 printf("Info: excute %s successfully, pid = %d\n", argv[1], pid);
                 if (!no_wait) sys_waitpid(pid);
             }
-        } else if (strcmp("list", argv[0]) == 0) {
+        } else if (strcmp("ls", argv[0]) == 0) {
             sys_list();
         } else if (strcmp("kill", argv[0]) == 0) {
             int pid = atoi(argv[1]);

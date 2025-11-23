@@ -37,6 +37,11 @@ typedef enum {
     LOCKED,
 } lock_status_t;
 
+typedef enum {
+    UNUSED,
+    USING,
+} use_status_t;
+
 typedef struct spin_lock {
     volatile lock_status_t status;
 } spin_lock_t;
@@ -60,9 +65,12 @@ void do_mutex_lock_acquire(int mlock_idx);
 void do_mutex_lock_release(int mlock_idx);
 void release_all_lock(pid_t pid);
 
-/************************************************************/
 typedef struct barrier {
-    // TODO [P3-TASK2 barrier]
+    int goal;            // 目标同步的线程/进程数
+    int wait_num;        // 当前已到达屏障的线程/进程数
+    list_head wait_list; // 等待队列
+    int key;             // 屏障的唯一标识符
+    use_status_t usage;  // 屏障的使用状态（USING/UNUSED）
 } barrier_t;
 
 #define BARRIER_NUM 16
@@ -73,7 +81,9 @@ void do_barrier_wait(int bar_idx);
 void do_barrier_destroy(int bar_idx);
 
 typedef struct condition {
-    // TODO [P3-TASK2 condition]
+    list_head wait_list; // 等待队列
+    int key;             // 条件变量的唯一标识符
+    use_status_t usage;  // 条件变量的使用状态（USING/UNUSED）
 } condition_t;
 
 #define CONDITION_NUM 16
@@ -86,7 +96,10 @@ void do_condition_broadcast(int cond_idx);
 void do_condition_destroy(int cond_idx);
 
 typedef struct semaphore {
-    // TODO [P3-TASK2 semaphore]
+    int sem;             // Value of the semaphore
+    list_head wait_list; // List of waiting processes
+    int key;             // Unique identifier
+    use_status_t usage;  // Usage status (USING/UNUSED)
 } semaphore_t;
 
 #define SEMAPHORE_NUM 16
@@ -98,9 +111,21 @@ void do_semaphore_down(int sema_idx);
 void do_semaphore_destroy(int sema_idx);
 
 #define MAX_MBOX_LENGTH (64)
+#define NAME_LEN 16
+
+typedef enum {
+    COPY_TO_MBOX,   // 写入邮箱
+    COPY_FROM_MBOX, // 从邮箱读出
+} copy_mode_t;
 
 typedef struct mailbox {
-    // TODO [P3-TASK2 mailbox]
+    char name[NAME_LEN];
+    char msg[MAX_MBOX_LENGTH + 1];
+    uint32_t wcur;                  // 写指针，指向首个空闲块
+    uint32_t rcur;                  // 读指针，记录下一个要读的位置
+    int user_num;              // 当前使用数
+    list_head wait_mbox_full;  // 由于邮箱满被阻塞的进程
+    list_head wait_mbox_empty; // 由于邮箱空被阻塞的进程
 } mailbox_t;
 
 #define MBOX_NUM 16
@@ -109,7 +134,5 @@ int do_mbox_open(char *name);
 void do_mbox_close(int mbox_idx);
 int do_mbox_send(int mbox_idx, void *msg, int msg_length);
 int do_mbox_recv(int mbox_idx, void *msg, int msg_length);
-
-/************************************************************/
 
 #endif
