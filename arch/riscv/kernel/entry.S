@@ -67,8 +67,7 @@
     .endm
 
     .macro                           RESTORE_CONTEXT
-/* TODO:
-    Restore                          all general purpose registers and sepc, sstatus */
+/* Restore                          all general purpose registers and sepc, sstatus */
 /* HINT:
     Pay                              attention to sp again! */
     ld                               x0, OFFSET_REG_ZERO(sp)

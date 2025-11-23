@@ -3,7 +3,6 @@
 
 #include <type.h>
 
-uint64_t load_task_img(char *task_name
-);
-
+uint64_t load_task_img(char *task_name);
+void do_list();
 #endif

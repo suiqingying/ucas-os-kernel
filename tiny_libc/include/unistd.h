@@ -18,11 +18,14 @@ void sys_mutex_release(int mutex_idx);
 void sys_set_sche_workload(uint64_t remain_length);
 void sys_set_checkpoint(uint64_t checkpoint);
 /************************************************************/
-/* TODO: [P3 task1] ps, getchar */
+/* ps, getchar */
 void sys_ps(void);
 int  sys_getchar(void);
+void sys_write_ch(char);
+void sys_clear(void);
+void sys_list(void);
 
-/* TODO: [P3 task1] exec, exit, kill waitpid */
+/* exec, exit, kill waitpid */
 pid_t  sys_exec(char *name, int argc, char **argv);
 
 void sys_exit(void);

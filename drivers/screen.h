@@ -27,6 +27,9 @@
 #ifndef INCLUDE_CONSOLE_H_
 #define INCLUDE_CONSOLE_H_
 
+/* screen write char */
+void screen_write_ch(char ch);
+
 /* configuring screen properties */
 void init_screen(void);
 
