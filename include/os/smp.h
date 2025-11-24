@@ -1,9 +1,11 @@
+#include <os/lock.h>
 #ifndef SMP_H
 #define SMP_H
 
 #define NR_CPUS 2
 extern void smp_init();
 extern void wakeup_other_hart();
+extern void smp_wait_for_boot();
 extern uint64_t get_current_cpu_id();
 extern void lock_kernel();
 extern void unlock_kernel();

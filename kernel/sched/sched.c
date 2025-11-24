@@ -8,12 +8,15 @@
 #include <os/time.h>
 #include <printk.h>
 #include <screen.h>
+#include <os/smp.h>
 #define LENGTH 60
 pcb_t pcb[NUM_MAX_TASK];
 const ptr_t pid0_stack = INIT_KERNEL_STACK + PAGE_SIZE;
 pcb_t pid0_pcb = {
-    .pid = 0, .kernel_sp = (ptr_t)pid0_stack, .user_sp = (ptr_t)pid0_stack};
-
+    .pid = 0, .kernel_sp = (ptr_t)pid0_stack, .user_sp = (ptr_t)pid0_stack, .status = TASK_RUNNING};
+const ptr_t s_pid0_stack = INIT_KERNEL_STACK + 2 * PAGE_SIZE; // S_KERNEL_STACK_TOP from head.S
+pcb_t s_pid0_pcb = {
+    .pid = -1, .kernel_sp = (ptr_t)s_pid0_stack, .user_sp = (ptr_t)s_pid0_stack, .status = TASK_RUNNING};
 LIST_HEAD(ready_queue);
 LIST_HEAD(sleep_queue);
 
@@ -31,23 +34,17 @@ void do_scheduler(void) {
     pcb_t *prior_running;
     prior_running = current_running;
 
-    if (current_running->pid != 0) {
+    if (current_running->pid != 0 && current_running->pid != -1) {
         // add to the ready queue
         if (current_running->status == TASK_RUNNING) {
             current_running->status = TASK_READY;
             add_node_to_q(&current_running->list, &ready_queue);
         }
     }
-    list_node_t *tmp = seek_ready_node();
-
-    current_running = get_pcb_from_node(tmp);
+    list_node_t *next_node = seek_ready_node();
+    current_running = get_pcb_from_node(next_node);
     current_running->status = TASK_RUNNING;
-
-    printl("pid[%d]:is going to running\n", current_running->pid);
-
-    // switch_to current_running
-    switch_to(prior_running, current_running);
-    printl("[%d] switch_to success!!!\n", current_running->pid);
+    switch_to(prior_running, current_running); // switch_to current_running
     return;
 }
 
@@ -80,7 +77,7 @@ void do_unblock(list_node_t *pcb_node) {
 
 list_node_t *seek_ready_node() {
     list_node_t *p = ready_queue.next;
-    if (p == &ready_queue) return &pid0_pcb.list;
+    if (p == &ready_queue) return NULL;
     delete_node_from_q(p);
     return p;
 }
@@ -112,7 +109,8 @@ pcb_t *get_pcb_from_node(list_node_t *node) {
         if (node == &pcb[i].list)
             return &pcb[i];
     }
-    return &pid0_pcb; // fail to find the task, return to kernel
+    if (get_current_cpu_id() == 0) return &pid0_pcb;
+    else return &s_pid0_pcb;
 }
 
 int search_free_pcb() {

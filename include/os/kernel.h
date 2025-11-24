@@ -4,6 +4,9 @@
 #include <type.h>
 #include <common.h>
 
+// The physical address where the bootloader stores the location and size of the task_info array.
+#define APP_INFO_ADDR_LOC 0x502001f4
+
 #define KERNEL_JMPTAB_BASE 0x51ffff00
 typedef enum {
     CONSOLE_PUTSTR,

@@ -9,6 +9,7 @@
 #include <os/lock.h>
 #include <os/mm.h>
 #include <os/sched.h>
+#include <os/smp.h>
 #include <os/string.h>
 #include <os/task.h>
 #include <os/time.h>
@@ -16,11 +17,13 @@
 #include <screen.h>
 #include <sys/syscall.h>
 #include <type.h>
-
 extern void ret_from_exception();
 
 // Task info array
 task_info_t tasks[TASK_MAXNUM];
+
+// A simple barrier for core synchronization
+volatile int boot_barrier = 0;
 
 static void init_jmptab(void) {
     volatile long (*(*jmptab))() = (volatile long (*(*))())KERNEL_JMPTAB_BASE;
@@ -79,6 +82,8 @@ static void init_pcb(void) {
     pid0_pcb.status = TASK_RUNNING;
     pid0_pcb.list.prev = NULL;
     pid0_pcb.list.next = NULL;
+    s_pid0_pcb.list.prev = NULL;
+    s_pid0_pcb.list.next = NULL;
     init_pcb_stack(pid0_pcb.kernel_sp, pid0_pcb.user_sp, (uint64_t)ret_from_exception, &pid0_pcb, 0, NULL);
     for (int i = 0; i < NUM_MAX_TASK; i++)
         pcb[i].status = TASK_EXITED;
@@ -127,62 +132,78 @@ static void init_syscall(void) {
 }
 /************************************************************/
 
-int main(int app_info_loc, int app_info_size) {
-    // Init jump table provided by kernel and bios(ΦωΦ)
-    init_jmptab();
+int main(int hartid) {
+    if (hartid == 0) {
+        init_jmptab(); // Init jump table provided by kernel and bios(ΦωΦ)
 
-    // Init task information (〃'▽'〃)
-    init_task_info(app_info_loc, app_info_size);
+        smp_init();  // Init SMP lock mechanism
 
-    // Init Process Control Blocks |•'-'•) ✧
-    init_pcb();
-    printk("> [INIT] PCB initialization succeeded.\n");
+        // Init task information (〃'▽'〃)
+        uint32_t *app_info_ptr = (uint32_t *)APP_INFO_ADDR_LOC; // 需要定义 APP_INFO_ADDR_LOC
+        int app_info_loc = app_info_ptr[0];
+        int app_info_size = app_info_ptr[1];
+        init_task_info(app_info_loc, app_info_size);
+        
+        // Read CPU frequency (｡•ᴗ-)_
+        time_base = bios_read_fdt(TIMEBASE);
+        printk("> [INIT] CPU time_base: %lu Hz\n", time_base);
+        
+        init_pcb(); // Init Process Control Blocks |•'-'•) ✧
+        init_locks(); // Init lock mechanism o(´^｀)o      
+        init_barriers();  // Init barrier mechanism o(´^｀)o      
+        init_conditions(); // Init condition variable mechanism o(´^｀)o    
+        init_semaphores();    // Init semaphore mechanism o(´^｀)o
+        init_mbox();         // Init mailbox mechanism o(´^｀)o 
+        init_syscall(); // Init system call table (0_0)
+        init_screen(); // Init screen (QAQ)
+        printk("> [INIT] All global initializations done.\n");
 
-    // Read CPU frequency (｡•ᴗ-)_
-    time_base = bios_read_fdt(TIMEBASE);
+        wakeup_other_hart();
+    } else {
+        /************************************************************/
+        /*                  从核的等待与唤醒                        */
+        /************************************************************/
 
-    // Init lock mechanism o(´^｀)o
-    init_locks();
-    printk("> [INIT] Lock mechanism initialization succeeded.\n");
-
-    // Init barrier mechanism o(´^｀)o
-    init_barriers();
-    printk("> [INIT] Barrier mechanism initialization succeeded.\n");
-
-    // Init condition variable mechanism o(´^｀)o
-    init_conditions();
-    printk("> [INIT] Condition variable initialization succeeded.\n");
-
-    // Init mailbox mechanism o(´^｀)o
-    init_mbox();
-    printk("> [INIT] Mailbox mechanism initialization succeeded.\n");
-
+        // 从核在此自旋，等待主核完成全局初始化
+        smp_wait_for_boot();
+        // 加锁打印，防止和 Hart 0 冲突
+        lock_kernel();
+        printk("> [INIT] Hart %d has woken up.\n", hartid);
+        unlock_kernel();
+    }
+    /****************************************************************/
+    /*               每核初始化 (所有核都执行)                      */
+    /****************************************************************/
     // Init interrupt (^_^)
     init_exception();
-    printk("> [INIT] Interrupt processing initialization succeeded.\n");
-
-    // Init system call table (0_0)
-    init_syscall();
-    printk("> [INIT] System call initialized successfully.\n");
-
-    // Init screen (QAQ)
-    init_screen();
-    printk("> [INIT] SCREEN initialization succeeded.\n");
-    printk("> [INIT] CPU time_base: %lu Hz\n", time_base);
     // Setup timer interrupt and enable all interrupt globally
-    // NOTE: The function of sstatus.sie is different from sie's
-    bios_set_timer(get_ticks() + TIMER_INTERVAL); // 设置第一次定时器中断
+    // NOTE: 我们给从核的第一次中断加一点点延迟，避免所有核同时中断
+    bios_set_timer(get_ticks() + TIMER_INTERVAL * (hartid + 1)); // 设置第一次定时器中断
 
-    do_exec("shell", 0, NULL);
-    // Infinite while loop, where CPU stays in a low-power state (QAQQQQQQQQQQQ)
-    while (1) {
-        // If you do non-preemptive scheduling, it's used to surrender control
-        // do_scheduler();
+    /****************************************************************/
+    /*                   启动第一个进程并进入调度                     */
+    /****************************************************************/
 
-        // If you do preemptive scheduling, they're used to enable CSR_SIE and wfi
-        enable_preempt();
-        asm volatile("wfi");
+    if (hartid == 0) {
+        do_exec("shell", 0, NULL);
+        lock_kernel();
+        printk("> [INIT] Shell task started on Hart 0.\n");
+        unlock_kernel();
     }
 
+    lock_kernel();
+    printk("> [INIT] Hart %d interrupt enabled.\n", hartid);
+    unlock_kernel();
+
+    enable_preempt();
+
+    /****************************************************************/
+    /*                   启动第一个进程并进入调度                     */
+    /****************************************************************/
+
+    // Infinite while loop, where CPU stays in a low-power state (QAQQQQQQQQQQQ)
+    while (1) {
+        asm volatile("wfi");
+    }
     return 0;
 }

@@ -79,7 +79,8 @@ int main(int argc, char* argv[])
     clock_t multiCoreEnd = clock();
     sys_move_cursor(0, print_location + 6);
     printf("multi core: %ld ticks, result = %d             \n\r", multiCoreEnd - multiCoreBegin, multi_core_final_result);
-#endif
+    printf("accelerate rate: %d%%\n", 100 * (singleCoreEnd - singleCoreBegin) / (multiCoreEnd - multiCoreBegin)); // CPU 默认不开启浮点运算
+    #endif
 
     sys_exit();    
 }

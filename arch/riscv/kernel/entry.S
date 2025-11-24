@@ -195,28 +195,37 @@
     /*                               restore context via provided macro and return to sepc */
 /* HINT:
     remember                         to check your sp, does it point to the right address? */
+    call unlock_kernel
     RESTORE_CONTEXT
     sret
     ENDPROC(ret_from_exception)
 
-    ENTRY(exception_handler_entry)
+ENTRY(exception_handler_entry)
 
-    /*                               save context via the provided macro */
+    /* save context via the provided macro */
     SAVE_CONTEXT
 
-    /*                               load ret_from_exception into $ra so that we can return to
-    *                                ret_from_exception when interrupt_help complete.
-    */
+    /* --------------------------------------------------------- */
+    /* Acquire Big Kernel Lock                        */
+    /* --------------------------------------------------------- */
+    call lock_kernel
 
-    /*                               call interrupt_helper
-* NOTE:
-    don't                            forget to pass parameters for it.
-    */
-    addi                             a0, sp, 0
-    csrr                             a1, stval
-    csrr                             a2, scause
+    /* --------------------------------------------------------- */
+    /* Call interrupt_helper                                     */
+    /* NOTE: We must prepare arguments AFTER lock_kernel,        */
+    /* because lock_kernel function call might modify a0/a1/a2.  */
+    /* --------------------------------------------------------- */
+    addi                             a0, sp, 0      /* arg0: regs pointer */
+    csrr                             a1, stval      /* arg1: stval */
+    csrr                             a2, scause     /* arg2: scause */
     call                             interrupt_helper
 
-    la                               ra, ret_from_exception
-    ret
+    /* --------------------------------------------------------- */
+    /* Release Big Kernel Lock                        */
+    /* --------------------------------------------------------- */
+    # call unlock_kernel
+
+    /* Return to ret_from_exception to restore context */
+    j                                ret_from_exception
+    
     ENDPROC(exception_handler_entry)
