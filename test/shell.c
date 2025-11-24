@@ -101,10 +101,10 @@ int main(void) {
             int exec_argc = argc - no_wait - 1;
             char *exec_argv[MAX_ARG_NUM];
 
-            for (int i = 1; i <= exec_argc; i++) {
+            for (int i = 0; i < exec_argc; i++) {
                 // printf("argv[%d]: %s\n", i, argv[i]);
                 // strcpy(exec_argv[i - 1], argv[i]);
-                exec_argv[i - 1] = argv[i];
+                exec_argv[i] = argv[i + 1];
                 // printf("exec_argv[%d]: %s\n", i - 1, exec_argv[i - 1]);
             }
             // printf("exec_argc: %d\n", exec_argc);
@@ -130,6 +130,57 @@ int main(void) {
                 printf("Info: Cannot find process with pid %d!\n", pid);
             else
                 printf("Info: Excute waitpid successfully, pid = %d.\n", pid);
+        } else if (strcmp(argv[0], "taskset") == 0) {
+            // 解析 taskset 命令
+            // 格式 1: taskset [mask] [command] [args...]
+            // 格式 2: taskset -p [mask] [pid]
+
+            if (argc < 3) {
+                printf("Error: taskset missing arguments\n");
+                continue;
+            }
+
+            int is_p_flag = (strcmp(argv[1], "-p") == 0);
+
+            if (is_p_flag) {
+                // 格式 2: taskset -p [mask] [pid]
+                if (argc != 4) {
+                    printf("Error: taskset -p [mask] [pid]\n");
+                } else {
+                    int mask = atoi(argv[2]); // 注意：atoi 只能解十进制，如果是十六进制输入需自己处理
+                int pid = atoi(argv[3]);
+                sys_taskset(pid, mask);
+                printf("Info: Set process %d affinity to 0x%x\n", pid, mask);
+                }
+                
+            } else {
+                // 格式 1: taskset [mask] [command]
+                int mask = atoi(argv[1]); // atoi 可以自动判断十进制或十六进制格式
+
+                // 1. 构建 exec 的参数
+                int exec_argc = argc - 2;
+                char *exec_argv[MAX_ARG_NUM];
+                for (int i = 0; i < exec_argc; i++) {
+                    exec_argv[i] = argv[i + 2];
+                }
+
+                // 2. 临时修改 Shell 自己的 mask
+                pid_t shell_pid = sys_getpid();
+                sys_taskset(shell_pid, mask);
+
+                // 3. 启动新进程 (它会继承 Shell 当前的 mask)
+                pid_t new_pid = sys_exec(exec_argv[0], exec_argc, exec_argv);
+
+                // 4. 恢复 Shell 的 mask (恢复为允许所有核 0x3)
+                sys_taskset(shell_pid, 0x3);
+
+                if (new_pid == 0) {
+                    printf("Error: exec failed!\n");
+                } else {
+                    printf("Info: taskset execute %s with mask 0x%x successfully, pid = %d\n", exec_argv[0], mask, new_pid);
+                    // sys_waitpid(new_pid);
+                }
+            }
         } else {
             printf("Error: Unknown command %s\n", buff);
         }

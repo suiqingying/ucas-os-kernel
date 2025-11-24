@@ -45,7 +45,7 @@ static void init_task_info(int app_info_loc, int app_info_size) {
     blocknums = NBYTES2SEC(app_info_loc + app_info_size) - start_sec;
     int task_info_addr = TASK_INFO_MEM;
     bios_sd_read(task_info_addr, blocknums, start_sec);
-    int start_addr = (TASK_INFO_MEM + app_info_loc - start_sec * SECTOR_SIZE);
+    uint64_t start_addr = (TASK_INFO_MEM + app_info_loc - start_sec * SECTOR_SIZE);
     memcpy((uint8_t *)tasks, (uint8_t *)start_addr, app_info_size);
 }
 
@@ -82,8 +82,10 @@ static void init_pcb(void) {
     pid0_pcb.status = TASK_RUNNING;
     pid0_pcb.list.prev = NULL;
     pid0_pcb.list.next = NULL;
+    pid0_pcb.mask = 0x3; // allow to run on core 0
     s_pid0_pcb.list.prev = NULL;
     s_pid0_pcb.list.next = NULL;
+    s_pid0_pcb.mask = 0x3; // allow to run on core 1
     init_pcb_stack(pid0_pcb.kernel_sp, pid0_pcb.user_sp, (uint64_t)ret_from_exception, &pid0_pcb, 0, NULL);
     for (int i = 0; i < NUM_MAX_TASK; i++)
         pcb[i].status = TASK_EXITED;
@@ -129,6 +131,7 @@ static void init_syscall(void) {
     syscall[SYSCALL_MBOX_CLOSE] = (long (*)())do_mbox_close;
     syscall[SYSCALL_MBOX_SEND] = (long (*)())do_mbox_send;
     syscall[SYSCALL_MBOX_RECV] = (long (*)())do_mbox_recv;
+    syscall[SYSCALL_TASKSET] = (long (*)())do_taskset;
 }
 /************************************************************/
 

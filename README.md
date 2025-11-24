@@ -1,3 +1,59 @@
+## Task 2: 同步原语完善与 Mailbox 实现 (Synchronization & IPC)
+
+### 1. 设计与实现思路 (Refinement & Implementation)
+
+在本次对话中，我们对原有的同步原语进行了深度审查与重构，并完成了进程间通信（Mailbox）的健壮性实现。
+
+#### 1.1 同步原语初始化逻辑重构 ("Lookup or Create")
+-   **问题**: 原有的 `do_barrier_init` 等函数在接收到相同的 `key` 时，会错误地创建新的内核对象，导致不同进程无法通过 key 找到同一个同步原语，破坏了跨进程同步的语义。
+-   **改进**:
+    -   统一了所有 `init` 函数（Barrier, Semaphore, Condition, Mailbox）的逻辑。
+    -   **Step 1**: 遍历数组，检查是否存在 `key` 相同且状态为 `USING` 的对象。若存在，直接返回其 ID（Handle）。
+    -   **Step 2**: 若不存在，寻找 `UNUSED` 的空闲槽位进行新建初始化。
+    -   这一修改确保了多进程通过 Key 进行“握手”的正确性。
+
+#### 1.2 条件变量的原子性修复 (`do_condition_wait`)
+-   **机制完善**: 标准的条件变量语义要求线程在被唤醒返回用户态时，必须持有锁。
+-   **实现**: 修改 `do_condition_wait` 流程。
+    1.  释放锁 (`mutex_release`)。
+    2.  进入睡眠 (`scheduler`)。
+    3.  **醒来后立即重新竞争锁 (`mutex_acquire`)**。
+    -   只有拿到锁之后才返回用户态，防止了用户程序在无锁状态下访问共享条件（如 `num_staff`），消除了严重的数据竞争风险。
+
+#### 1.3 邮箱通信 (Mailbox) 的环形缓冲区设计
+-   **核心结构**: 采用 **Ring Buffer (环形缓冲区)** 机制。
+-   **游标设计**: 使用 `unsigned int` 类型的 `wcur` (写游标) 和 `rcur` (读游标)。
+    -   利用无符号整数溢出回绕（Wrap-around）的特性，放弃了复杂的取模比较。
+    -   使用 `bytes_used = wcur - rcur` 计算已用空间，`bytes_free = MAX - bytes_used` 计算剩余空间，即使游标溢出也能保证计算结果正确。
+-   **数据拷贝**: 封装了 `circular_buffer_copy` 辅助函数，统一处理跨越数组边界的内存拷贝逻辑（分段拷贝或取模拷贝），提升了代码可读性。
+
+---
+
+### 2. 遇到的 Bug 与重构记录 (Debugging & Refactoring Log)
+
+我们在代码审查过程中发现并修复了以下关键问题：
+
+#### Bug 1: 信号量与屏障的 Key 冲突问题
+-   **现象**: 两个进程分别调用 `semaphore_init(100, 1)`，结果各自拿到了不同的信号量 ID，导致互斥失效。
+-   **解决**: 引入了 Key 检查机制，强制执行 "Get or Create" 语义。同时明确了对于 Barrier，如果 Key 已存在，后来的初始化请求中传入的 `goal` 参数将被忽略，以先创建者的配置为准。
+
+#### Bug 2: 条件变量唤醒后的“裸奔”风险
+-   **现象**: 用户程序 `while(cond) wait()` 结构中，`wait` 返回后进程处于无锁状态，导致随后的条件判断和数据修改发生竞争。
+-   **解决**: 在内核态 `do_condition_wait` 的 `do_scheduler()` 之后强制插入 `do_mutex_lock_acquire()`。
+
+#### Bug 3: Mailbox 逻辑死锁与溢出风险
+-   **现象**:
+    1.  若使用 `int` (有符号数) 作为游标，长期运行后游标变为负数，导致数组下标越界（Kernel Panic）。
+    2.  在判断“满”或“空”时，使用 `wcur + len > rcur + size` 这种绝对值比较，在溢出回绕时逻辑会失效，导致进程意外永久阻塞。
+-   **解决**:
+    -   将游标类型全部改为 `unsigned int`。
+    -   重构判断逻辑为“差值比较” (`wcur - rcur`)，消除了逻辑死锁隐患。
+    -   增加了对 `msg_length > MAX_MBOX_LENGTH` 的边界检查，防止因用户传入非法长度导致的死锁。
+
+#### Refactoring: 代码规范化
+-   **优化**: 将 Mailbox 的内存拷贝逻辑从 `do_mbox_send/recv` 中剥离，封装为 `circular_buffer_copy`。
+-   **优化**: 使用 `const void *` 修饰发送源数据，增强了函数的接口安全性。
+-   **优化**: 引入 `typedef unsigned int uint32_t` 提升代码跨平台兼容性。
 ## Task 3: 多核 CPU 支持与并行执行 (Multicore Support)
 
 ### 1. 设计与实现思路
@@ -71,3 +127,51 @@
 -   成功实现了主从核的协同启动与初始化。
 -   `multicore` 测试程序在双核模式下运行正常。
 -   **性能提升**: 相比单核模式，双核加速比达到 **~1.87x**，证明双核并行调度工作正常。
+
+## Task 4: CPU 亲和性与动态绑核 (CPU Affinity)
+
+### 1. 设计与实现思路
+
+本任务的目标是实现 CPU 亲和性（Affinity），即控制进程在特定的 CPU 核上运行。我们采用 **掩码 (Mask)** 机制，`mask` 的每一位对应一个 CPU 核。
+
+#### 1.1 内核数据结构与调度器
+-   **PCB 修改**: 在 `pcb_t` 中增加 `int mask` 字段。
+-   **调度算法 (`seek_ready_node`)**:
+    -   修改了任务查找逻辑。调度器不再仅仅获取队列头部的任务，而是遍历 `ready_queue`。
+    -   判断条件：`pcb->status == TASK_READY && (pcb->mask & (1 << current_cpu))`。
+    -   只有满足当前核掩码要求的任务才会被调度运行，否则跳过。
+-   **Mask 继承策略**:
+    -   修改 `do_exec`，新创建的进程默认继承父进程 (`current_running`) 的 `mask`。
+    -   这保证了由 Shell 启动的程序能继承 Shell 的亲和性设置。
+
+#### 1.2 系统调用与 Shell 命令
+-   **新增系统调用**: `sys_taskset(pid_t pid, int mask)`，对应内核函数 `do_taskset`，用于动态修改指定进程的 mask。
+-   **Shell `taskset` 命令**:
+    -   **启动模式** (`taskset mask cmd`): 利用 Shell 自身变身机制。Shell 先修改自己的 mask，执行 `exec`（子进程继承 mask），然后 Shell 恢复原来的 mask。
+    -   **修改模式** (`taskset -p mask pid`): 直接调用 `sys_taskset` 修改目标进程。
+
+---
+
+### 2. 遇到的 Bug 与解决方案 (Debugging Log)
+
+Task 4 的调试过程揭示了底层 ABI 和调度策略的两个关键问题：
+
+#### Bug 1: `-O2` 优化下的内存对齐崩溃 (Alignment Fault)
+-   **现象**: 在 `-O0` 下运行正常，但在 `-O2` 优化下，`affinity` 测试程序输出乱码或崩溃，且观察到内存地址偏移异常。
+-   **原因**:
+    -   SD 卡中程序的 `.text` 段起始偏移量为 140 字节 ($140 \% 8 \neq 0$)。
+    -   旧的 Loader 直接返回 `BASE + 偏移` 的地址。
+    -   在 `-O2` 优化下，编译器生成了 `ld` (64位加载) 指令来操作 `uint64_t` 数据。RISC-V 硬件/QEMU 要求 `ld` 指令访问的地址必须 **8字节对齐**。
+    -   由于 140 不是 8 的倍数，导致非对齐访问 (Misaligned Access)，读取数据错误。
+-   **解决**: 重写 `load_task_img`。不再直接返回偏移地址，而是使用 `memcpy` 将代码搬运到页对齐（Page Aligned，自然也是 8字节对齐）的内存基地址处。保证了所有指令和数据的地址对齐满足编译器假设。
+
+#### Bug 2: 多核测试无加速效果 (Mask 继承链问题)
+-   **现象**: 运行 `multicore` 测试，虽然双核均已启动，但加速比始终为 1.0 (单核性能)。
+-   **原因**:
+    -   内核初始化时，`pid0_pcb` (Idle Task) 的 `mask` 未显式初始化（默认为 0 或 1）。
+    -   `shell` 由 `pid0` 启动，继承了 `mask=1` (仅主核)。
+    -   `multicore` 由 `shell` 启动，继续继承 `mask=1`。
+    -   结果导致 `multicore` 创建的所有计算子任务都被强制锁定在主核运行，从核处于空闲状态。
+-   **解决**: 在 `sched.c` 初始化阶段，显式将 `pid0_pcb` 和 `s_pid0_pcb` 的 `mask` 设置为 `0x3` (允许所有核运行)。
+
+---

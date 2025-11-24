@@ -157,19 +157,9 @@ static void create_image(int nfiles, char *files[])
     printf("current phyaddr:%x\n", phyaddr);
 
     /* reserve one sector for batch file at the end */
-    int current_sectors = NBYTES2SEC(phyaddr);
-    int batch_sector = current_sectors; /* batch will live at this sector */
+    int batch_sector = NBYTES2SEC(phyaddr); /* batch will live at this sector */
     write_padding(img, &phyaddr, (batch_sector + 1) * SECTOR_SIZE);
     printf("Reserved one sector for batch file at sector %d, current phyaddr:%x\n", batch_sector, phyaddr);
-
-    /* write batch_sector into bootblock info area (after taskinfo addr/size)
-     * APP_INFO_ADDR_LOC already holds taskinfo addr and size (8 bytes).
-     * We write batch_sector as an int at APP_INFO_ADDR_LOC + 8.
-     */
-    fseek(img, APP_INFO_ADDR_LOC + 8, SEEK_SET);
-    fwrite(&batch_sector, sizeof(int), 1, img);
-    printf("Wrote batch sector (%d) to boot info at offset 0x%x\n", batch_sector, APP_INFO_ADDR_LOC + 8);
-    fclose(img);
 }
 
 static void read_ehdr(Elf64_Ehdr * ehdr, FILE * fp)

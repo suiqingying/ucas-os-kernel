@@ -4,11 +4,11 @@
 #include <os/lock.h>
 #include <os/mm.h>
 #include <os/sched.h>
+#include <os/smp.h>
 #include <os/string.h>
 #include <os/time.h>
 #include <printk.h>
 #include <screen.h>
-#include <os/smp.h>
 #define LENGTH 60
 pcb_t pcb[NUM_MAX_TASK];
 const ptr_t pid0_stack = INIT_KERNEL_STACK + PAGE_SIZE;
@@ -31,8 +31,7 @@ void do_scheduler(void) {
     /************************************************************/
 
     // Modify the current_running pointer.
-    pcb_t *prior_running;
-    prior_running = current_running;
+    pcb_t *prior_running = current_running;
 
     if (current_running->pid != 0 && current_running->pid != -1) {
         // add to the ready queue
@@ -76,10 +75,32 @@ void do_unblock(list_node_t *pcb_node) {
 }
 
 list_node_t *seek_ready_node() {
-    list_node_t *p = ready_queue.next;
+    /*list_node_t *p = ready_queue.next;
     if (p == &ready_queue) return NULL;
     delete_node_from_q(p);
-    return p;
+    return p;*/
+    int current_cpu = get_current_cpu_id();
+    list_node_t *pos = ready_queue.next;
+
+    // 遍历就绪队列
+    while (pos != &ready_queue) {
+        pcb_t *candidate_pcb = get_pcb_from_node(pos);
+
+        // 检查 mask 的第 current_cpu 位是否为 1
+        if (candidate_pcb->status == TASK_READY && 
+           (candidate_pcb->mask & (1 << current_cpu))) {
+            
+            // 找到了符合当前核运行条件的任务, 将其从队列中移除并返回
+            delete_node_from_q(pos);
+            return pos;
+        }
+
+        // 如果不符合条件，继续找下一个
+        pos = pos->next;
+    }
+
+    // 遍历了一圈都没找到适合当前核的任务，返回 NULL
+    return NULL;
 }
 
 void init_list_head(list_head *list) {
@@ -109,8 +130,10 @@ pcb_t *get_pcb_from_node(list_node_t *node) {
         if (node == &pcb[i].list)
             return &pcb[i];
     }
-    if (get_current_cpu_id() == 0) return &pid0_pcb;
-    else return &s_pid0_pcb;
+    if (get_current_cpu_id() == 0)
+        return &pid0_pcb;
+    else
+        return &s_pid0_pcb;
 }
 
 int search_free_pcb() {
@@ -159,6 +182,7 @@ pid_t do_exec(char *name, int argc, char *argv[]) {
         pcb[index].cursor_y = 0;
         pcb[index].wait_list.prev = pcb[index].wait_list.next = &pcb[index].wait_list;
         pcb[index].list.prev = pcb[index].list.next = NULL;
+        pcb[index].mask = current_running->mask;
         // 参数搬到用户栈
         uint64_t user_sp = pcb[index].user_sp;
         user_sp -= sizeof(char *) * argc;
@@ -211,13 +235,45 @@ int do_waitpid(pid_t pid) {
     }
     return 0;
 }
+
 /* waitpid 的设计应该是当前进程等待指定的进程，而不是所有进程都等待该进程 */
+
 void do_process_show() {
     static char *stat_str[3] = {"BLOCKED", "RUNNING", "READY"};
+    printk("[Process Table]:\n");
     for (int i = 0; i < NUM_MAX_TASK; i++) {
-        if (pcb[i].status != TASK_EXITED)
-            printk("[%d] PID : %d  STATUS : %s \n", i, pcb[i].pid, stat_str[pcb[i].status]);
+        if (pcb[i].status != TASK_EXITED) {
+            // 打印 Mask
+            printk("[%d] PID : %d  STATUS : %s  MASK : 0x%x", 
+                   i, pcb[i].pid, stat_str[pcb[i].status], pcb[i].mask);
+            
+            // 如果是 RUNNING，打印当前所在的核
+            // 注意：多核环境下判断哪个核跑哪个进程比较复杂，
+            // 这里我们简单判断一下是否是当前核正在跑的
+            if (pcb[i].status == TASK_RUNNING) {
+                if (pcb[i].pid == current_running->pid) {
+                     printk(" [ON CORE %d]", get_current_cpu_id());
+                } else {
+                     // 如果它在 Running 但不是当前核跑的，那肯定是在另一个核
+                     printk(" [ON CORE %d]", 1 - get_current_cpu_id());
+                }
+            }
+            printk("\n");
+        }
     }
 }
 
 pid_t do_getpid() { return current_running->pid; }
+
+void do_taskset(pid_t pid, int mask) {
+    for (int i = 0; i < NUM_MAX_TASK; i++) {
+        if (pcb[i].pid == pid && pcb[i].status != TASK_EXITED) {
+            pcb[i].mask = mask;
+            /*  这里我们只修改了 mask。
+                如果该任务正在错误的核心上运行，我们暂时不强制迁移它。
+                等它下一次调度时，do_scheduler 会自动根据 mask 决定它去哪里。
+            */
+            return;
+        }
+    }
+}

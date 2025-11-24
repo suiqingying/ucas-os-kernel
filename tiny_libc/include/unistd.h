@@ -30,6 +30,7 @@ void sys_exit(void);
 int sys_kill(pid_t pid);
 int sys_waitpid(pid_t pid);
 pid_t sys_getpid();
+void sys_taskset (pid_t pid, int mask);
 
 /* barrier */
 int sys_barrier_init(int key, int goal);

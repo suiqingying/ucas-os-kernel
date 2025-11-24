@@ -7,7 +7,7 @@
 #define TASK_MAXNUM      16
 #define TASK_SIZE        0x10000
 #define TASK_INFO_MEM    0x52300000
-
+#define TMP_MEM_BASE     0x59000000
 #define SECTOR_SIZE 512
 #define NBYTES2SEC(nbytes) (((nbytes) / SECTOR_SIZE) + ((nbytes) % SECTOR_SIZE != 0))
 
