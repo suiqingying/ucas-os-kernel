@@ -57,4 +57,9 @@ int sys_mbox_send(int mbox_idx, void *msg, int msg_length);
 int sys_mbox_recv(int mbox_idx, void *msg, int msg_length);
 /************************************************************/
 
+/* threads */
+int sys_thread_create(void (*start_routine)(void *), void *arg);
+void sys_thread_exit(void *retval);
+int sys_thread_join(pid_t tid, void **retval);
+
 #endif

@@ -77,6 +77,7 @@ typedef struct pcb
 
     /* process id */
     pid_t pid;
+    pid_t tgid;          // Thread group id (process id)
 
     /* BLOCK | READY | RUNNING */
     task_status_t status;
@@ -90,6 +91,9 @@ typedef struct pcb
 
     /* CPU Affinity mask */
     int mask;
+
+    /* Thread return value (for join) */
+    void *thread_ret;
 } pcb_t;
 
 /* ready queue to run */
@@ -126,9 +130,15 @@ extern void do_process_show();
 extern pid_t do_getpid();
 void do_taskset(pid_t pid, int mask);
 
+/* Thread APIs */
+pid_t do_thread_create(ptr_t entry_point, ptr_t arg);
+void do_thread_exit(ptr_t retval);
+int do_thread_join(pid_t tid, ptr_t retval_ptr);
+
 int search_free_pcb();
 void pcb_release(pcb_t* p);
 void free_block_list(list_node_t* head);
 
 extern void init_pcb_stack(ptr_t kernel_stack, ptr_t user_stack, ptr_t entry_point, pcb_t *pcb, int argc, char* argv[]);   
+extern void init_thread_stack(ptr_t kernel_stack, ptr_t user_stack, ptr_t entry_point, pcb_t *pcb, ptr_t arg);
 #endif

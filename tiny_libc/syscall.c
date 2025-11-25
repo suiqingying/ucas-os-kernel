@@ -206,4 +206,16 @@ void sys_taskset (pid_t pid, int mask) {
     /* call invoke_syscall to implement sys_taskset */
     invoke_syscall(SYSCALL_TASKSET, (long)pid, (long)mask, IGNORE, IGNORE, IGNORE);
 }
+
+int sys_thread_create(void (*start_routine)(void *), void *arg) {
+    return invoke_syscall(SYSCALL_THREAD_CREATE, (long)start_routine, (long)arg, IGNORE, IGNORE, IGNORE);
+}
+
+void sys_thread_exit(void *retval) {
+    invoke_syscall(SYSCALL_THREAD_EXIT, (long)retval, IGNORE, IGNORE, IGNORE, IGNORE);
+}
+
+int sys_thread_join(pid_t tid, void **retval) {
+    return invoke_syscall(SYSCALL_THREAD_JOIN, (long)tid, (long)retval, IGNORE, IGNORE, IGNORE);
+}
 /************************************************************/

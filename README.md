@@ -1,3 +1,32 @@
+## Task 1: 简易终端与基础命令 (Shell & Process Basics)
+
+### 1. Shell 设计
+
+- `test/shell.c` 实现了一个常驻用户进程，负责刷新屏幕、读取串口输入并解析成 argv/argc。
+- 支持命令：`ps`、`clear`、`ls`、`exec ... [&]`、`kill <pid>`、`wait <pid>` 以及扩展的 `taskset`。命令解析器限制 16 个参数、每个参数 16 字节，与 Project 书的“轻量 shell”要求一致。
+- `exec` 通过 `sys_exec` 启动用户程序，可选择后台运行（`&`）。前台任务自动 `sys_waitpid`，后台模式只打印 PID。
+- `taskset` 同时支持 “启动即绑核” 与 “-p 修改现有进程” 两种形式，shell 会在 `exec` 前暂时修改自己的亲和 mask，确保子进程继承设置。
+
+### 2. 进程创建与基础系统调用
+
+- **执行加载 (`do_exec`)**：`kernel/sched/sched.c` 里负责分配 PCB/栈、调用 `load_task_img()` 拷贝 ELF、将 argv 复制到用户栈（保持 128 字节对齐），最后挂到 ready queue。
+- **进程结束 (`do_exit`)**：设置 `TASK_EXITED` 并调用 `pcb_release()`，释放等待队列、锁等资源，再触发调度。
+- **进程终止/等待**：`do_kill()` 通过 PID 标记目标为 EXITED 并清理；`do_waitpid()` 将当前进程 block 在目标 PCB 的 wait_list，直至目标退出。
+- **进程可视化 (`do_process_show`)**：打印每个 PCB 的状态、亲和 mask，并标注正在运行的 core，便于调试 shell 命令。
+
+### 3. 屏幕与输入处理
+
+- `screen_write`/`screen_reflush` 封装在系统调用里，shell 通过 `sys_move_cursor`、`sys_write_ch`、`sys_reflush` 等接口刷新“COMMAND”区域，使输出与 Project 文档的 UI 一致。
+- 输入来自 `sys_getchar()`，支持退格、回车等基础编辑功能，确保终端交互友好。
+
+### 4. 测试方法
+
+1. `exec shell` 自动启动，按提示输入 `ls`/`ps` 等命令验证基本功能。
+2. `exec waitpid &` 或 `exec ready_to_exit` 可测试 `exec/wait/kill` 流程。
+3. `taskset 0x1 mbox_server &`、`taskset -p 0x2 <pid>` 检查亲和性命令是否生效。
+
+---
+
 ## Task 2: 同步原语完善与 Mailbox 实现 (Synchronization & IPC)
 
 ### 1. 设计与实现思路 (Refinement & Implementation)
@@ -175,3 +204,34 @@ Task 4 的调试过程揭示了底层 ABI 和调度策略的两个关键问题�
 -   **解决**: 在 `sched.c` 初始化阶段，显式将 `pid0_pcb` 和 `s_pid0_pcb` 的 `mask` 设置为 `0x3` (允许所有核运行)。
 
 ---
+
+## Task 5: 多核 Mailbox 防死锁 & 线程机制
+
+### 1. 线程支持与系统调用
+
+- **PCB 扩展**：为 `pcb_t` 增加 `tgid`、`thread_ret` 等字段，用于区分“进程 ID”(tgid) 与“线程 ID”(pid)。
+- **内核线程栈初始化**：在 `init/main.c` 新增 `init_thread_stack`，复用现有上下文切换逻辑。
+- **系统调用**：新增 `sys_thread_create/exit/join`，内核侧提供 `do_thread_create/exit/join`，并在 syscall 表与 TinyLibC 中注册。
+- **调试辅助**：`ps` 命令现在会区分 `PROC` 与 `THRD`，显示 `PROC:<tgid>` 与 `TID:<pid>`，便于观察多线程任务的运行状态。
+
+### 2. Mailbox 死锁复现与修复
+
+- **复现程序 (`mbox_deadlock`)**：控制进程预填两个邮箱，两个 worker 分别执行“先收后发”但资源请求顺序相反，必然卡在 `sys_mbox_send`，验证死锁存在。
+- **修复程序 (`mbox_thr_demo`)**：
+  - 每个 worker 创建两个线程：`receiver_thread` 专管 `sys_mbox_recv`，`sender_thread` 专管 `sys_mbox_send`，两个线程通过共享缓冲 `data_ready` 交替工作，每次循环释放一个邮箱资源再申请另一个，破坏“占有且等待”条件。
+  - Demo 仅运行固定轮数（默认 5 次），两个线程自然退出，主线程 `sys_thread_join` 后 `sys_exit`，控制进程等待两侧 worker 完成后打印“Demo finished”。
+  - 运行效果：`exec mbox_thr_demo &` 后可以看到 `[Fix-A/B] send/recv #n` 连续输出，`ps` 中只有极少线程在 RUNNING/READY，其余均自动退出，说明死锁解除且任务可收尾。
+
+### 3. 关键注意事项
+
+- **加载隔离**：移除 `kernel/loader/loader.c` 中的 `is_load[]` 缓存，每次 `exec` 都重新搬运 ELF，保证不同进程的 `.data/.bss` 彼此隔离，线程状态不会相互覆盖。
+- **兼容旧测试**：线程实现复用原有 PCB/调度基础设施，对 `mbox_client/server`、`multicore` 等测试无侵入影响；若需要查看线程分布，可使用更新后的 `ps`。
+
+### 4. 测试步骤
+
+1. `exec mbox_deadlock &`：观察两个 worker 永久 BLOCKED，作为失败基准。
+2. `exec mbox_thr_demo &`：观察 send/recv 线程交替输出，待日志提示完成后 `ps` 仅余 shell，证明线程版 demo 成功退出。
+3. `ps` 命令对比：可以直接看到 `PROC` 与 `THRD` 的区分，确认线程确实继承了父进程的 `tgid`。
+
+---
+

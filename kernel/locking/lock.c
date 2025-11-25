@@ -277,6 +277,7 @@ void init_mbox() {
         mbox[i].wait_mbox_empty.prev = mbox[i].wait_mbox_empty.next = &mbox[i].wait_mbox_empty;
     }
 }
+
 int do_mbox_open(char *name) {
     /*根据名字返回一个对应的 mailbox 如果不存在对应名字的 mailbox 则返回一个新的 mailbox*/
     for (int i = 0; i < MBOX_NUM; i++) {
@@ -330,6 +331,7 @@ int do_mbox_send(int mbox_idx, void *msg, int msg_length) {
 
     // 2. 利用无符号减法计算当前已用空间
     // 无论 wcur 是否溢出回绕，(wcur - rcur) 永远等于缓冲区内的数据量
+    printk ("[MBOX] Sent %d bytes at wcur=%u\n", msg_length, mb->wcur, mb->rcur);
     while (1) {
         uint32_t bytes_used = mb->wcur - mb->rcur;
         uint32_t bytes_free = MAX_MBOX_LENGTH - bytes_used;
@@ -344,9 +346,8 @@ int do_mbox_send(int mbox_idx, void *msg, int msg_length) {
         do_scheduler();
         block_count++;
     }
-
     // 3. 执行拷贝
-    circular_buffer_copy(mb->msg, (const char *)msg, mb->wcur, msg_length,MAX_MBOX_LENGTH, COPY_TO_MBOX);
+    circular_buffer_copy(mb->msg, (const char *)msg, mb->wcur, msg_length, MAX_MBOX_LENGTH, COPY_TO_MBOX);
 
     // 4. 更新游标
     mb->wcur += msg_length; // 无符号加法，自动处理溢出回绕
@@ -377,9 +378,8 @@ int do_mbox_recv(int mbox_idx, void *msg, int msg_length) {
     }
 
     // 执行拷贝
-    circular_buffer_copy((char *)msg, mb->msg, mb->rcur, msg_length, 
-                         MAX_MBOX_LENGTH, COPY_FROM_MBOX);
-    
+    circular_buffer_copy((char *)msg, mb->msg, mb->rcur, msg_length, MAX_MBOX_LENGTH, COPY_FROM_MBOX);
+
     // 更新游标 (注意：这里不需要取模，让它一直增加即可)
     mb->rcur += msg_length;
 

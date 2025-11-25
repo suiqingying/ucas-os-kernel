@@ -26,7 +26,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *  * * * * * * * * * * */
 
 #include <ctype.h>
-#include <os/loader.h>
+// #include <os/loader.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -100,15 +100,7 @@ int main(void) {
             int no_wait = !strcmp(argv[argc - 1], "&");
             int exec_argc = argc - no_wait - 1;
             char *exec_argv[MAX_ARG_NUM];
-
-            for (int i = 0; i < exec_argc; i++) {
-                // printf("argv[%d]: %s\n", i, argv[i]);
-                // strcpy(exec_argv[i - 1], argv[i]);
-                exec_argv[i] = argv[i + 1];
-                // printf("exec_argv[%d]: %s\n", i - 1, exec_argv[i - 1]);
-            }
-            // printf("exec_argc: %d\n", exec_argc);
-            // printf("wait or nowait: %d\n", no_wait);
+            for (int i = 0; i < exec_argc; i++) exec_argv[i] = argv[i + 1];
             pid_t pid = sys_exec(argv[1], exec_argc, exec_argv);
             if (pid == 0) {
                 printf("Error: exec failed!\n");
@@ -148,11 +140,11 @@ int main(void) {
                     printf("Error: taskset -p [mask] [pid]\n");
                 } else {
                     int mask = atoi(argv[2]); // 注意：atoi 只能解十进制，如果是十六进制输入需自己处理
-                int pid = atoi(argv[3]);
-                sys_taskset(pid, mask);
-                printf("Info: Set process %d affinity to 0x%x\n", pid, mask);
+                    int pid = atoi(argv[3]);
+                    sys_taskset(pid, mask);
+                    printf("Info: Set process %d affinity to 0x%x\n", pid, mask);
                 }
-                
+
             } else {
                 // 格式 1: taskset [mask] [command]
                 int mask = atoi(argv[1]); // atoi 可以自动判断十进制或十六进制格式

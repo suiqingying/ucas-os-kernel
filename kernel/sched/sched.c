@@ -13,10 +13,10 @@
 pcb_t pcb[NUM_MAX_TASK];
 const ptr_t pid0_stack = INIT_KERNEL_STACK + PAGE_SIZE;
 pcb_t pid0_pcb = {
-    .pid = 0, .kernel_sp = (ptr_t)pid0_stack, .user_sp = (ptr_t)pid0_stack, .status = TASK_RUNNING};
+    .pid = 0, .tgid = 0, .kernel_sp = (ptr_t)pid0_stack, .user_sp = (ptr_t)pid0_stack, .status = TASK_RUNNING, .thread_ret = NULL};
 const ptr_t s_pid0_stack = INIT_KERNEL_STACK + 2 * PAGE_SIZE; // S_KERNEL_STACK_TOP from head.S
 pcb_t s_pid0_pcb = {
-    .pid = -1, .kernel_sp = (ptr_t)s_pid0_stack, .user_sp = (ptr_t)s_pid0_stack, .status = TASK_RUNNING};
+    .pid = -1, .tgid = -1, .kernel_sp = (ptr_t)s_pid0_stack, .user_sp = (ptr_t)s_pid0_stack, .status = TASK_RUNNING, .thread_ret = NULL};
 LIST_HEAD(ready_queue);
 LIST_HEAD(sleep_queue);
 
@@ -176,13 +176,15 @@ pid_t do_exec(char *name, int argc, char *argv[]) {
     else {
         pcb[index].kernel_sp = (reg_t)(allocKernelPage(1) + PAGE_SIZE);
         pcb[index].user_sp = (reg_t)(allocUserPage(1) + PAGE_SIZE);
-        pcb[index].pid = task_num + 1; // pid 0 is for kernel
+        pcb[index].pid = ++task_num; // pid 0 is for kernel
+        pcb[index].tgid = pcb[index].pid;
         pcb[index].status = TASK_READY;
         pcb[index].cursor_x = 0;
         pcb[index].cursor_y = 0;
         pcb[index].wait_list.prev = pcb[index].wait_list.next = &pcb[index].wait_list;
         pcb[index].list.prev = pcb[index].list.next = NULL;
         pcb[index].mask = current_running->mask;
+        pcb[index].thread_ret = NULL;
         // 参数搬到用户栈
         uint64_t user_sp = pcb[index].user_sp;
         user_sp -= sizeof(char *) * argc;
@@ -199,11 +201,67 @@ pid_t do_exec(char *name, int argc, char *argv[]) {
         init_pcb_stack(pcb[index].kernel_sp, pcb[index].user_sp, entry_point, &pcb[index], argc, argv_ptr);
         // 加入ready队列
         add_node_to_q(&pcb[index].list, &ready_queue);
-        // 进程数加一
-        task_num++;
-        // printk("%d\n",task_num);
     }
     return pcb[index].pid; // 返回pid值
+}
+
+pid_t do_thread_create(ptr_t entry_point, ptr_t arg) {
+    if (entry_point == 0)
+        return -1;
+
+    int index = search_free_pcb();
+    if (index == -1)
+        return -1;
+
+    pcb[index].kernel_sp = (reg_t)(allocKernelPage(1) + PAGE_SIZE);
+    pcb[index].user_sp = (reg_t)(allocUserPage(1) + PAGE_SIZE);
+    pcb[index].pid = ++task_num;
+    pcb[index].tgid = current_running->tgid;
+    pcb[index].status = TASK_READY;
+    pcb[index].cursor_x = current_running->cursor_x;
+    pcb[index].cursor_y = current_running->cursor_y;
+    pcb[index].wait_list.prev = pcb[index].wait_list.next = &pcb[index].wait_list;
+    pcb[index].list.prev = pcb[index].list.next = NULL;
+    pcb[index].mask = current_running->mask;
+    pcb[index].thread_ret = NULL;
+
+    init_thread_stack(pcb[index].kernel_sp, pcb[index].user_sp, entry_point, &pcb[index], arg);
+    add_node_to_q(&pcb[index].list, &ready_queue);
+    return pcb[index].pid;
+}
+
+void do_thread_exit(ptr_t retval) {
+    current_running->thread_ret = (void *)retval;
+    current_running->status = TASK_EXITED;
+    pcb_release(current_running);
+    do_scheduler();
+}
+
+int do_thread_join(pid_t tid, ptr_t retval_ptr) {
+    if (tid == current_running->pid)
+        return -1;
+
+    pcb_t *target = NULL;
+    for (int i = 0; i < NUM_MAX_TASK; i++) {
+        if (pcb[i].pid == tid) {
+            target = &pcb[i];
+            break;
+        }
+    }
+
+    if (target == NULL || target->tgid != current_running->tgid)
+        return -1;
+
+    if (target->status != TASK_EXITED) {
+        do_block(&current_running->list, &target->wait_list);
+        do_scheduler();
+    }
+
+    if (retval_ptr != 0) {
+        *(ptr_t *)retval_ptr = (ptr_t)target->thread_ret;
+    }
+
+    return 0;
 }
 
 void do_exit() {
@@ -243,19 +301,16 @@ void do_process_show() {
     printk("[Process Table]:\n");
     for (int i = 0; i < NUM_MAX_TASK; i++) {
         if (pcb[i].status != TASK_EXITED) {
-            // 打印 Mask
-            printk("[%d] PID : %d  STATUS : %s  MASK : 0x%x", 
-                   i, pcb[i].pid, stat_str[pcb[i].status], pcb[i].mask);
-            
-            // 如果是 RUNNING，打印当前所在的核
-            // 注意：多核环境下判断哪个核跑哪个进程比较复杂，
-            // 这里我们简单判断一下是否是当前核正在跑的
+            const char *role = (pcb[i].tgid == pcb[i].pid) ? "PROC" : "THRD";
+            int proc_id = (pcb[i].tgid >= 0) ? pcb[i].tgid : pcb[i].pid;
+            printk("[%d] %s PROC:%d TID:%d STATUS:%s MASK:0x%x",
+                   i, role, proc_id, pcb[i].pid, stat_str[pcb[i].status], pcb[i].mask);
+
             if (pcb[i].status == TASK_RUNNING) {
                 if (pcb[i].pid == current_running->pid) {
-                     printk(" [ON CORE %d]", get_current_cpu_id());
+                    printk(" [ON CORE %d]", get_current_cpu_id());
                 } else {
-                     // 如果它在 Running 但不是当前核跑的，那肯定是在另一个核
-                     printk(" [ON CORE %d]", 1 - get_current_cpu_id());
+                    printk(" [ON CORE %d]", 1 - get_current_cpu_id());
                 }
             }
             printk("\n");
@@ -263,7 +318,7 @@ void do_process_show() {
     }
 }
 
-pid_t do_getpid() { return current_running->pid; }
+pid_t do_getpid() { return current_running->tgid; }
 
 void do_taskset(pid_t pid, int mask) {
     for (int i = 0; i < NUM_MAX_TASK; i++) {

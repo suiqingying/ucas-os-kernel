@@ -76,15 +76,34 @@ void init_pcb_stack(ptr_t kernel_stack, ptr_t user_stack, ptr_t entry_point, pcb
     pt_switchto->regs[1] = (reg_t)pt_switchto;        // kernel_sp
 }
 
+void init_thread_stack(ptr_t kernel_stack, ptr_t user_stack, ptr_t entry_point, pcb_t *pcb, ptr_t arg) {
+    regs_context_t *pt_regs =
+        (regs_context_t *)(kernel_stack - sizeof(regs_context_t));
+    pt_regs->regs[1] = entry_point;
+    pt_regs->regs[2] = user_stack;
+    pt_regs->regs[4] = (uint64_t)pcb;
+    pt_regs->regs[10] = arg; // a0 = argument
+    pt_regs->sstatus = SR_SPIE;
+    pt_regs->sepc = (uint64_t)entry_point;
+
+    switchto_context_t *pt_switchto =
+        (switchto_context_t *)((ptr_t)pt_regs - sizeof(switchto_context_t));
+    pcb->kernel_sp = (reg_t)pt_switchto;
+    pt_switchto->regs[0] = (reg_t)ret_from_exception;
+    pt_switchto->regs[1] = (reg_t)pt_switchto;
+}
+
 static void init_pcb(void) {
     /* load needed tasks and init their corresponding PCB */
     // PCB for kernel
     pid0_pcb.status = TASK_RUNNING;
+    pid0_pcb.tgid = 0;
     pid0_pcb.list.prev = NULL;
     pid0_pcb.list.next = NULL;
     pid0_pcb.mask = 0x3; // allow to run on core 0
     s_pid0_pcb.list.prev = NULL;
     s_pid0_pcb.list.next = NULL;
+    s_pid0_pcb.tgid = -1;
     s_pid0_pcb.mask = 0x3; // allow to run on core 1
     init_pcb_stack(pid0_pcb.kernel_sp, pid0_pcb.user_sp, (uint64_t)ret_from_exception, &pid0_pcb, 0, NULL);
     for (int i = 0; i < NUM_MAX_TASK; i++)
@@ -132,6 +151,9 @@ static void init_syscall(void) {
     syscall[SYSCALL_MBOX_SEND] = (long (*)())do_mbox_send;
     syscall[SYSCALL_MBOX_RECV] = (long (*)())do_mbox_recv;
     syscall[SYSCALL_TASKSET] = (long (*)())do_taskset;
+    syscall[SYSCALL_THREAD_CREATE] = (long (*)())do_thread_create;
+    syscall[SYSCALL_THREAD_EXIT] = (long (*)())do_thread_exit;
+    syscall[SYSCALL_THREAD_JOIN] = (long (*)())do_thread_join;
 }
 /************************************************************/
 
