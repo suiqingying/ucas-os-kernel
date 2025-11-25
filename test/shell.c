@@ -112,7 +112,8 @@ int main(void) {
             sys_list();
         } else if (strcmp("kill", argv[0]) == 0) {
             int pid = atoi(argv[1]);
-            if (sys_kill(pid) == 0)
+            if (pid == 1) printf("Info: We should not kill the shell process!\n");
+            else if (sys_kill(pid) == 0)
                 printf("Info: Cannot find process with pid %d!\n", pid);
             else
                 printf("Info: kill process %d successfully.\n", pid);

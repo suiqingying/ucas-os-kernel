@@ -39,10 +39,6 @@ static void controller_main(void) {
     printf("Use 'ps' to observe the two processes stuck in TASK_BLOCKED.\n");
     printf("This reproduces the two-mailbox circular wait described in the guide.\n");
 
-    // Keep the controller alive so the shell regains control with '&'.
-    while (1) {
-        sys_sleep(1);
-    }
 }
 
 static void worker_main(int is_role_a) {

@@ -331,7 +331,6 @@ int do_mbox_send(int mbox_idx, void *msg, int msg_length) {
 
     // 2. 利用无符号减法计算当前已用空间
     // 无论 wcur 是否溢出回绕，(wcur - rcur) 永远等于缓冲区内的数据量
-    printk ("[MBOX] Sent %d bytes at wcur=%u\n", msg_length, mb->wcur, mb->rcur);
     while (1) {
         uint32_t bytes_used = mb->wcur - mb->rcur;
         uint32_t bytes_free = MAX_MBOX_LENGTH - bytes_used;

@@ -10,12 +10,8 @@
 typedef struct {
     int send_handle;
     int recv_handle;
-    volatile int data_ready; // 0: waiting for data, 1: ready to send
-    char buffer[MAX_MBOX_LENGTH];
     char label;
     int max_loops;
-    volatile int recv_loops;
-    volatile int send_loops;
 } thread_state_t;
 
 static void fill_mailbox_full(const char *name, char token) {
@@ -28,30 +24,23 @@ static void fill_mailbox_full(const char *name, char token) {
 
 static void receiver_thread(void *arg) {
     thread_state_t *state = (thread_state_t *)arg;
-    while (state->recv_loops < state->max_loops) {
-        while (state->data_ready) {
-            sys_yield();
-        }
-        sys_mbox_recv(state->recv_handle, state->buffer, MAX_MBOX_LENGTH);
-        state->recv_loops++;
-        state->data_ready = 1;
+    char buff[MAX_MBOX_LENGTH];
+    for (int i = 0; i < state->max_loops; i++) {
+        sys_mbox_recv(state->recv_handle, buff, MAX_MBOX_LENGTH);
         sys_move_cursor(0, state->label == 'A' ? 7 : 9);
-        printf("[Fix-%c] recv #%d complete, waking sender\n", state->label, state->recv_loops);
+        printf("[Fix-%c] recv #%d complete\n", state->label, i + 1);
     }
     sys_thread_exit(NULL);
 }
 
 static void sender_thread(void *arg) {
     thread_state_t *state = (thread_state_t *)arg;
-    while (state->send_loops < state->max_loops) {
-        while (!state->data_ready) {
-            sys_yield();
-        }
-        sys_mbox_send(state->send_handle, state->buffer, MAX_MBOX_LENGTH);
-        state->send_loops++;
-        state->data_ready = 0;
+    char payload[MAX_MBOX_LENGTH];
+    memset(payload, state->label, sizeof(payload));
+    for (int i = 0; i < state->max_loops; i++) {
+        sys_mbox_send(state->send_handle, payload, MAX_MBOX_LENGTH);
         sys_move_cursor(0, state->label == 'A' ? 8 : 10);
-        printf("[Fix-%c] send #%d pushed successfully\n", state->label, state->send_loops);
+        printf("[Fix-%c] send #%d pushed successfully\n", state->label, i + 1);
     }
     sys_thread_exit(NULL);
 }
@@ -74,8 +63,7 @@ static void controller_main(void) {
     printf("Step 2: Spawning threaded workers A & B.\n");
     pid_t pidA = spawn_thread_worker("roleA");
     pid_t pidB = spawn_thread_worker("roleB");
-    printf("Threads split send/recv, and each worker will run a few rounds.\n");
-    printf("Waiting for both workers to finish...\n");
+    printf("Threads split send/recv; waiting for both workers to finish...\n");
 
     sys_waitpid(pidA);
     sys_waitpid(pidB);
@@ -88,15 +76,11 @@ static void worker_main(int is_role_a) {
     const char *target = is_role_a ? THREADFIX_MBOX_A : THREADFIX_MBOX_B;
     const char *peer = is_role_a ? THREADFIX_MBOX_B : THREADFIX_MBOX_A;
 
-    static thread_state_t state;
+    thread_state_t state;
     state.send_handle = sys_mbox_open((char *)target);
     state.recv_handle = sys_mbox_open((char *)peer);
-    state.data_ready = 0;
     state.label = is_role_a ? 'A' : 'B';
-    memset(state.buffer, 0, sizeof(state.buffer));
     state.max_loops = 5;
-    state.recv_loops = 0;
-    state.send_loops = 0;
 
     int barrier = sys_barrier_init(THREADFIX_BARRIER_KEY, 2);
     sys_move_cursor(0, is_role_a ? 5 : 6);
@@ -110,9 +94,6 @@ static void worker_main(int is_role_a) {
 
     sys_thread_join(recv_tid, NULL);
     sys_thread_join(send_tid, NULL);
-
-    sys_move_cursor(0, is_role_a ? 5 : 6);
-    printf("[Fix-%c] Completed %d iterations, exiting worker.\n", state.label, state.max_loops);
     sys_exit();
 }
 
