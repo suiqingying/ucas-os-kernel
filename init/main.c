@@ -161,26 +161,26 @@ int main(int hartid) {
     if (hartid == 0) {
         init_jmptab(); // Init jump table provided by kernel and bios(ΦωΦ)
 
-        smp_init();  // Init SMP lock mechanism
+        smp_init(); // Init SMP lock mechanism
 
         // Init task information (〃'▽'〃)
         uint32_t *app_info_ptr = (uint32_t *)APP_INFO_ADDR_LOC; // 需要定义 APP_INFO_ADDR_LOC
         int app_info_loc = app_info_ptr[0];
         int app_info_size = app_info_ptr[1];
         init_task_info(app_info_loc, app_info_size);
-        
+
         // Read CPU frequency (｡•ᴗ-)_
         time_base = bios_read_fdt(TIMEBASE);
         printk("> [INIT] CPU time_base: %lu Hz\n", time_base);
-        
-        init_pcb(); // Init Process Control Blocks |•'-'•) ✧
-        init_locks(); // Init lock mechanism o(´^｀)o      
-        init_barriers();  // Init barrier mechanism o(´^｀)o      
-        init_conditions(); // Init condition variable mechanism o(´^｀)o    
-        init_semaphores();    // Init semaphore mechanism o(´^｀)o
-        init_mbox();         // Init mailbox mechanism o(´^｀)o 
-        init_syscall(); // Init system call table (0_0)
-        init_screen(); // Init screen (QAQ)
+
+        init_pcb();        // Init Process Control Blocks |•'-'•) ✧
+        init_locks();      // Init lock mechanism o(´^｀)o
+        init_barriers();   // Init barrier mechanism o(´^｀)o
+        init_conditions(); // Init condition variable mechanism o(´^｀)o
+        init_semaphores(); // Init semaphore mechanism o(´^｀)o
+        init_mbox();       // Init mailbox mechanism o(´^｀)o
+        init_syscall();    // Init system call table (0_0)
+        init_screen();     // Init screen (QAQ)
         printk("> [INIT] All global initializations done.\n");
 
         wakeup_other_hart();

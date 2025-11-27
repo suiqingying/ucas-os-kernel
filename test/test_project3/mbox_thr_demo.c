@@ -80,7 +80,7 @@ static void worker_main(int is_role_a) {
     state.send_handle = sys_mbox_open((char *)target);
     state.recv_handle = sys_mbox_open((char *)peer);
     state.label = is_role_a ? 'A' : 'B';
-    state.max_loops = 5;
+    state.max_loops = 5000;
 
     int barrier = sys_barrier_init(THREADFIX_BARRIER_KEY, 2);
     sys_move_cursor(0, is_role_a ? 5 : 6);

@@ -121,8 +121,8 @@ typedef enum {
 typedef struct mailbox {
     char name[NAME_LEN];
     char msg[MAX_MBOX_LENGTH + 1];
-    uint32_t wcur;                  // 写指针，指向首个空闲块
-    uint32_t rcur;                  // 读指针，记录下一个要读的位置
+    uint32_t wcur;             // 写指针，指向首个空闲块
+    uint32_t rcur;             // 读指针，记录下一个要读的位置
     int user_num;              // 当前使用数
     list_head wait_mbox_full;  // 由于邮箱满被阻塞的进程
     list_head wait_mbox_empty; // 由于邮箱空被阻塞的进程

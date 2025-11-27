@@ -87,9 +87,9 @@ list_node_t *seek_ready_node() {
         pcb_t *candidate_pcb = get_pcb_from_node(pos);
 
         // 检查 mask 的第 current_cpu 位是否为 1
-        if (candidate_pcb->status == TASK_READY && 
-           (candidate_pcb->mask & (1 << current_cpu))) {
-            
+        if (candidate_pcb->status == TASK_READY &&
+            (candidate_pcb->mask & (1 << current_cpu))) {
+
             // 找到了符合当前核运行条件的任务, 将其从队列中移除并返回
             delete_node_from_q(pos);
             return pos;
@@ -271,27 +271,64 @@ void do_exit() {
 }
 
 int do_kill(pid_t pid) {
+    // 规范化建议：此函数当前按 pid 杀死线程。
+    // 如果要实现标准的 kill(pid_t pid, int sig) 功能，
+    // pid 通常指进程ID(tgid)，且应处理信号而非直接终止。
+    // 这里我们仅优化当前逻辑，增加对任务队列的清理。
+    pcb_t *target = NULL;
     for (int i = 0; i < NUM_MAX_TASK; i++) {
         if (pcb[i].status != TASK_EXITED && pcb[i].pid == pid) {
-            pcb[i].status = TASK_EXITED;
-            pcb_release(&pcb[i]);
-            return 1;
+            target = &pcb[i];
+            break;
         }
     }
-    return 0;
+
+    if (target == NULL) {
+        return 0; // 目标不存在
+    }
+
+    // 从其所在的任何队列中移除 (如 ready_queue, sleep_queue)
+    // 这一步很关键，防止已“死亡”的线程被再次调度
+    if (target->status == TASK_READY || target->status == TASK_BLOCKED) {
+        delete_node_from_q(&target->list);
+    }
+
+    target->status = TASK_EXITED;
+    pcb_release(target); // 释放等待队列和锁
+
+    // 如果杀死的是当前任务，则需要调度新任务
+    if (target == current_running) {
+        do_scheduler();
+    }
+
+    return 1; // 成功
 }
 
 int do_waitpid(pid_t pid) {
+    // 规范化建议：waitpid 应等待进程(tgid)而非线程(pid)。
+    // 并且应处理僵尸进程(TASK_ZOMBIE)的回收。
+    // 以下为对现有逻辑的优化。
+    pcb_t *target = NULL;
     for (int i = 0; i < NUM_MAX_TASK; i++) {
         if (pcb[i].pid == pid) {
-            if (pcb[i].status != TASK_EXITED) {
-                do_block(&(current_running->list), &(pcb[i].wait_list));
-                do_scheduler();
-                return pid;
-            }
+            target = &pcb[i];
+            break;
         }
     }
-    return 0;
+
+    if (target == NULL) {
+        return 0; // 子进程不存在
+    }
+
+    // 如果目标进程还未退出，则阻塞等待
+    if (target->status != TASK_EXITED) {
+        do_block(&(current_running->list), &(target->wait_list));
+        do_scheduler();
+    }
+
+    // 此时目标进程已退出，可以进行资源回收（如果实现了僵尸状态）
+    // 例如：free_pcb(target);
+    return pid; // 返回已退出子进程的PID
 }
 
 /* waitpid 的设计应该是当前进程等待指定的进程，而不是所有进程都等待该进程 */

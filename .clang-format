@@ -1,0 +1,114 @@
+---
+# 基于 LLVM 风格，这是 LLVM 项目本身的编码规范，适合大多数 C++ 项目。
+BasedOnStyle: LLVM
+
+# 指定语言为 C++，只对 C++ 文件生效。
+Language: Cpp
+
+# 缩进宽度：使用 4 个空格
+IndentWidth: 4
+
+# 最大行长度：超过 80 列自动换行（0 表示无限制）。
+ColumnLimit: 0
+
+# 制表符宽度：使用 4 个空格
+TabWidth: 4
+
+# 使用制表符
+UseTab: Never
+
+# 命名空间缩进：All 表示命名空间缩进
+NamespaceIndentation: All
+
+# 修复命名空间注释
+FixNamespaceComments: true
+
+
+# 续行缩进宽度：函数调用或表达式换行时的额外缩进（LLVM 默认 4）。
+ContinuationIndentWidth: 4
+
+# 访问修饰符偏移：public/private 等相对于类内容的偏移（负数表示外缩）。
+AccessModifierOffset: -4
+
+# 括号后对齐：函数调用等括号后参数对齐方式（Align 表示对齐）。
+AlignAfterOpenBracket: Align
+
+# 连续赋值对齐：是否对齐连续的赋值语句（None 表示不对齐）。
+AlignConsecutiveAssignments: None
+
+# 连续声明对齐：是否对齐连续的变量声明（None 表示不对齐）。
+AlignConsecutiveDeclarations: None
+
+# 二元运算符换行：None 表示在运算符后换行。
+BreakBeforeBinaryOperators: None
+
+# 大括号换行：Attach 表示大括号附加到上一行（LLVM 风格）。
+BreakBeforeBraces: Attach
+
+# 短函数单行：All 表示允许所有短函数单行。
+AllowShortFunctionsOnASingleLine: All
+
+# 短 if 语句单行: true 表示允许短 if 语句单行
+AllowShortIfStatementsOnASingleLine: true
+
+# 短循环单行: true 表示允许短循环单行
+AllowShortLoopsOnASingleLine: true
+
+# 短块单行：Empty 表示只允许空块单行。
+AllowShortBlocksOnASingleLine: Empty
+
+# 参数打包：true 表示如果合适，将参数打包到一行。
+BinPackArguments: true
+
+# 函数参数打包：类似以上。
+BinPackParameters: true
+
+# 指针对齐：Right 表示指针在右边（int *p;）。
+PointerAlignment: Right
+
+# 从代码推导指针对齐：false 表示使用固定规则。
+DerivePointerAlignment: false
+
+# 开圆括号之前添加一个空格: Never, ControlStatements, Always
+SpaceBeforeParens: ControlStatements
+
+# 括号内空格：false 表示无空格。
+SpacesInParentheses: false
+
+# 尖括号内空格：false 表示无空格。
+SpacesInAngles: false
+
+# 空括号内空格：false 表示无空格。
+SpaceInEmptyParentheses: false
+
+# 在赋值运算符之前添加空格
+SpaceBeforeAssignmentOperators: true
+
+# C 风格转换括号内空格：false 表示无空格。
+SpacesInCStyleCastParentheses: false
+
+# switch case 标签缩进：false 表示与 switch 对齐。
+IndentCaseLabels: false
+
+# include 块处理：Regroup 表示按类别分组并排序。
+IncludeBlocks: Regroup
+
+# include 类别：定义排序优先级的正则表达式。
+IncludeCategories:
+  - Regex: '^(<|")((google|llvm)/.*)'  # LLVM/Google 相关头文件优先级 2
+    Priority: 2
+  - Regex: '^<.*\.h>'  # 系统头文件 .h 优先级 1
+    Priority: 1
+  - Regex: '^<.*'  # 其他系统头文件优先级 3
+    Priority: 3
+  - Regex: '.*'  # 用户头文件优先级 4
+    Priority: 4
+
+# C++11 括号初始化列表风格：true 表示现代风格，无内空格。
+Cpp11BracedListStyle: true
+
+# 评论重排：true 表示自动换行评论以适应列宽。
+ReflowComments: true
+
+# 评论 pragma：指定不分割的特殊评论正则。
+CommentPragmas: '^ IWYU pragma:'
