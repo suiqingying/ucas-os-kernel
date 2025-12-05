@@ -32,7 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#define SHELL_BEGIN 20
+#define SHELL_BEGIN 80
 #define MAX_ARG_NUM 16
 #define MAX_ARG_LEN 16
 #define MAX_BUFF_LEN 256
@@ -141,6 +141,10 @@ int main(void) {
                     printf("Error: taskset -p [mask] [pid]\n");
                 } else {
                     int mask = atoi(argv[2]); // 注意：atoi 只能解十进制，如果是十六进制输入需自己处理
+                    if  (mask == 0) {
+                        printf("Error: Invalid mask 0\n");
+                        continue;
+                    }
                     int pid = atoi(argv[3]);
                     sys_taskset(pid, mask);
                     printf("Info: Set process %d affinity to 0x%x\n", pid, mask);
@@ -150,6 +154,10 @@ int main(void) {
                 // 格式 1: taskset [mask] [command]
                 int mask = atoi(argv[1]); // atoi 可以自动判断十进制或十六进制格式
 
+                if (mask == 0) {
+                    printf("Error: Invalid mask 0\n");
+                    continue;
+                }
                 // 1. 构建 exec 的参数
                 int exec_argc = argc - 2;
                 char *exec_argv[MAX_ARG_NUM];

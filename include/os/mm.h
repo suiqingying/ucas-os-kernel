@@ -43,26 +43,17 @@
 #define ROUNDDOWN(a, n) (((uint64_t)(a)) & ~((n) - 1))
 
 extern ptr_t allocPage(int numPage);
-// TODO [P4-task1] */
+
 void freePage(ptr_t baseAddr);
 
-// #define S_CORE
-// NOTE: only need for S-core to alloc 2MB large page
-#ifdef S_CORE
-#define LARGE_PAGE_FREEMEM 0xffffffc056000000
-#define USER_STACK_ADDR 0x400000
-extern ptr_t allocLargePage(int numPage);
-#else
-// NOTE: A/C-core
 #define USER_STACK_ADDR 0xf00010000
-#endif
 
-// TODO [P4-task1] */
 extern void *kmalloc(size_t size);
 extern void share_pgtable(uintptr_t dest_pgdir, uintptr_t src_pgdir);
 extern uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir);
+extern void free_pgtable_pages(uintptr_t pgdir);
 
-// TODO [P4-task4]: shm_page_get/dt */
+// TODO [P4-task4]:shm_page_get/dt */
 uintptr_t shm_page_get(int key);
 void shm_page_dt(uintptr_t addr);
 

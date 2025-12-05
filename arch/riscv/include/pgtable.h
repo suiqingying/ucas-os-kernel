@@ -69,26 +69,41 @@ static inline void set_satp(unsigned mode, unsigned asid, unsigned long ppn) {
 
 typedef uint64_t PTE;
 
-/* Translation between physical addr and kernel virtual addr */
-static inline uintptr_t kva2pa(uintptr_t kva) { /* TODO: [P4-task1] */ }
+// /* Translation between physical addr and kernel virtual addr */
+#define KERNEL_VA_PA_OFFSET 0xffffffc000000000lu
 
-static inline uintptr_t pa2kva(uintptr_t pa) { /* TODO: [P4-task1] */ }
+static inline uintptr_t kva2pa(uintptr_t kva) { return kva - KERNEL_VA_PA_OFFSET; }
+
+static inline uintptr_t pa2kva(uintptr_t pa) { return pa + KERNEL_VA_PA_OFFSET; }
 
 /* get physical page addr from PTE 'entry' */
-static inline uint64_t get_pa(PTE entry) { /* TODO: [P4-task1] */ }
+// 0x3fffffffff = (1L << 44) - 1
+static inline uint64_t get_pa(PTE entry) { return ((entry >> _PAGE_PFN_SHIFT) & 0x3fffffffffflu) << NORMAL_PAGE_SHIFT; }
 
 /* Get/Set page frame number of the `entry` */
-static inline long get_pfn(PTE entry) { /* TODO: [P4-task1] */ }
-static inline void set_pfn(PTE *entry, uint64_t pfn) { /* TODO: [P4-task1] */ }
+static inline long get_pfn(PTE entry) { return (entry >> _PAGE_PFN_SHIFT) & 0x3fffffffffflu; }
+
+static inline void set_pfn(PTE *entry, uint64_t pfn) { *entry = (*entry & ((1lu << _PAGE_PFN_SHIFT) - 1)) | (pfn << _PAGE_PFN_SHIFT); }
 
 /* Get/Set attribute(s) of the `entry` */
-static inline long get_attribute(PTE entry, uint64_t mask) {
-    /* TODO: [P4-task1] */
-}
+static inline long get_attribute(PTE entry, uint64_t mask) { return entry & mask; }
+
 static inline void set_attribute(PTE *entry, uint64_t bits) {
-    /* TODO: [P4-task1] */
+    // _PAGE_PFN_SHIFT 通常为 10
+    // ((1lu << _PAGE_PFN_SHIFT) - 1) 得到 0x3FF (所有属性位的掩码)
+    uint64_t attribute_mask = (1lu << _PAGE_PFN_SHIFT) - 1;
+
+    // 1. 清除旧属性: *entry & ~attribute_mask
+    // 2. 设置新属性: | (bits & attribute_mask)
+    // (这里的 & attribute_mask 是为了防止传入的 bits 误包含了高位数据破坏 PFN)
+    *entry = ((*entry) & ~attribute_mask) | (bits & attribute_mask);
 }
 
-static inline void clear_pgdir(uintptr_t pgdir_addr) { /* TODO: [P4-task1] */ }
+static inline void clear_pgdir(uintptr_t pgdir_addr) {
+    volatile uint64_t *pgdir = (uint64_t *)pgdir_addr;
+    for (int i = 0; i < NUM_PTE_ENTRY; i++) {
+        pgdir[i] = 0;
+    }
+}
 
 #endif // PGTABLE_H

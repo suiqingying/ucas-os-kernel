@@ -57,6 +57,12 @@ int sys_mbox_send(int mbox_idx, void *msg, int msg_length);
 int sys_mbox_recv(int mbox_idx, void *msg, int msg_length);
 /************************************************************/
 
+/* pipe */
+int sys_pipe_open(const char *name);
+long sys_pipe_give_pages(int pipe_idx, void *src, size_t length);
+long sys_pipe_take_pages(int pipe_idx, void *dst, size_t length);
+/************************************************************/
+
 /* threads */
 int sys_thread_create(void (*start_routine)(void *), void *arg);
 void sys_thread_exit(void *retval);

@@ -6,12 +6,16 @@
 #include <screen.h>
 
 #define SCREEN_WIDTH 80
-#define SCREEN_HEIGHT 100
+#define SCREEN_HEIGHT 300
 #define SCREEN_LOC(x, y) ((y) * SCREEN_WIDTH + (x))
 
 /* screen buffer */
 char new_screen[SCREEN_HEIGHT * SCREEN_WIDTH] = {0};
 char old_screen[SCREEN_HEIGHT * SCREEN_WIDTH] = {0};
+
+// 新增：全局内核光标，专用于 printk
+static int kernel_cursor_x = 0;
+static int kernel_cursor_y = 0;
 
 /* cursor position */
 static void vt100_move_cursor(int x, int y) {
@@ -58,6 +62,27 @@ void screen_write_ch(char ch) {
     }
 }
 
+void screen_write_ch_kernel(char ch) {
+    if (ch == '\n') {
+        kernel_cursor_x = 0;
+        if (kernel_cursor_y < SCREEN_HEIGHT)
+            kernel_cursor_y++;
+    } 
+    else if (ch == '\b' || ch == '\177') {
+        if (kernel_cursor_x > 0) {
+            kernel_cursor_x--;
+            new_screen[SCREEN_LOC(kernel_cursor_x, kernel_cursor_y)] = ' ';
+        }
+    } else {
+        new_screen[SCREEN_LOC(kernel_cursor_x, kernel_cursor_y)] = ch;
+        if (++kernel_cursor_x >= SCREEN_WIDTH) {
+            kernel_cursor_x = 0;
+            if (kernel_cursor_y < SCREEN_HEIGHT)
+                kernel_cursor_y++;
+        }
+    }
+}
+
 void init_screen(void) {
     vt100_hidden_cursor();
     vt100_clear();
@@ -73,6 +98,8 @@ void screen_clear(void) {
             old_screen[SCREEN_LOC(j, i)] = ' ';
         }
     }
+    kernel_cursor_x = 0;
+    kernel_cursor_y = 0;
     current_running->cursor_x = 0;
     current_running->cursor_y = 0;
     screen_reflush();
@@ -98,6 +125,15 @@ void screen_write(char *buff) {
 
     for (i = 0; i < l; i++) {
         screen_write_ch(buff[i]);
+    }
+}
+
+void screen_write_kernel(char *buff) {
+    int i = 0;
+    int l = strlen(buff);
+
+    for (i = 0; i < l; i++) {
+        screen_write_ch_kernel(buff[i]);
     }
 }
 

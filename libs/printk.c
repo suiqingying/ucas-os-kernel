@@ -276,7 +276,7 @@ static int _vprint(const char *fmt, va_list _va,
 
 static void _output_wrapper(char *buff)
 {
-    screen_write(buff);
+    screen_write_kernel(buff);
     screen_reflush();
 }
 

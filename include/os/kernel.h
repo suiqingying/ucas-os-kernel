@@ -5,8 +5,6 @@
 #include <common.h>
 #include <pgtable.h>
 
-// The physical address where the bootloader stores the location and size of the task_info array.
-#define APP_INFO_ADDR_LOC 0x502001f4
 #define KERNEL_JMPTAB_BASE 0xffffffc051ffff00
 
 typedef enum {

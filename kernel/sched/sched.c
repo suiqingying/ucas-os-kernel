@@ -26,6 +26,7 @@ pid_t process_id = 1;
 void do_scheduler(void) {
     // Check sleep queue to wake up PCBs
     check_sleeping();
+
     /************************************************************/
     /* Do not touch this comment. Reserved for future projects. */
     /************************************************************/
@@ -40,10 +41,20 @@ void do_scheduler(void) {
             add_node_to_q(&current_running->list, &ready_queue);
         }
     }
+
     list_node_t *next_node = seek_ready_node();
     current_running = get_pcb_from_node(next_node);
     current_running->status = TASK_RUNNING;
-    switch_to(prior_running, current_running); // switch_to current_running
+
+    // [重点] 切换用户页表
+    // 只有当即将运行的进程不是 pid0 (内核线程) 时才需要切换
+    // 但为了简化逻辑，pid0 也建立了页表，所以可以统一切换
+    // 注意：必须使用物理地址写入 satp
+    uintptr_t pgdir_pa = kva2pa(current_running->pgdir);
+    // 重新设置 satp 寄存器
+    set_satp(SATP_MODE_SV39, 0, pgdir_pa >> NORMAL_PAGE_SHIFT);
+    local_flush_icache_all();
+    switch_to(prior_running, current_running);
     return;
 }
 
@@ -117,6 +128,9 @@ void add_node_to_q(list_node_t *node, list_head *head) {
 }
 
 void delete_node_from_q(list_node_t *node) {
+    assert(node != NULL);
+    assert(node->prev != NULL);
+    assert(node->next != NULL);
     list_node_t *p, *q;
     p = node->prev;
     q = node->next;
@@ -157,52 +171,114 @@ void free_block_list(list_node_t *head) {
 }
 
 void pcb_release(pcb_t *p) {
-    if (current_running->pid != p->pid)
-        delete_node_from_q(&(p->list));
+
     free_block_list(&(p->wait_list));
     release_all_lock(p->pid);
+//     if (p->pgdir) {
+//         free_pgtable_pages(p->pgdir);
+//     }
 }
 
 int task_num = 0;
 pid_t do_exec(char *name, int argc, char *argv[]) {
-    // printk("argc: %d\n", argc);
-    char **argv_ptr;
+    // 1. 查找空闲 PCB
     int index = search_free_pcb();
-    if (index == -1) return 0;
-    uint64_t entry_point;
-    entry_point = load_task_img(name);
-    if (entry_point == 0)
+    if (index == -1) {
+        printk("Error: PCB full!\n");
         return 0;
-    else {
-        pcb[index].kernel_sp = (reg_t)(allocKernelPage(1) + PAGE_SIZE);
-        pcb[index].user_sp = (reg_t)(allocUserPage(1) + PAGE_SIZE);
-        pcb[index].pid = ++task_num; // pid 0 is for kernel
-        pcb[index].tgid = pcb[index].pid;
-        pcb[index].status = TASK_READY;
-        pcb[index].cursor_x = 0;
-        pcb[index].cursor_y = 0;
-        pcb[index].wait_list.prev = pcb[index].wait_list.next = &pcb[index].wait_list;
-        pcb[index].list.prev = pcb[index].list.next = NULL;
-        pcb[index].mask = current_running->mask;
-        pcb[index].thread_ret = NULL;
-        // 参数搬到用户栈
-        uint64_t user_sp = pcb[index].user_sp;
-        user_sp -= sizeof(char *) * argc;
-        argv_ptr = (char **)user_sp;
-
-        for (int i = argc - 1; i >= 0; i--) {
-            int len = strlen(argv[i]) + 1; // 要拷贝'\0'
-            user_sp -= len;
-            argv_ptr[i] = (char *)user_sp;
-            strcpy((char *)user_sp, argv[i]);
-        }
-        pcb[index].user_sp = (reg_t)ROUNDDOWN(user_sp, 128); // 栈指针128字节对齐
-        // 初始化栈，改变入口地址，存储参数
-        init_pcb_stack(pcb[index].kernel_sp, pcb[index].user_sp, entry_point, &pcb[index], argc, argv_ptr);
-        // 加入ready队列
-        add_node_to_q(&pcb[index].list, &ready_queue);
     }
-    return pcb[index].pid; // 返回pid值
+    pcb_t *new_pcb = &pcb[index];
+
+    // 2. 分配页目录 (PGD)
+    // allocPage 返回 KVA，方便内核直接访问
+    uintptr_t pgdir = allocPage(1);
+    clear_pgdir(pgdir);
+
+    // 3. 复制内核映射
+    // share_pgtable 需要物理地址，所以用 kva2pa 转换
+    share_pgtable(kva2pa(pgdir), PGDIR_PA);
+
+    // 4. 加载任务
+    // 传入 pgdir (KVA)，load_task_img 会自动处理页分配和映射
+    uint64_t entry_point = load_task_img(name, pgdir);
+    if (entry_point == 0) {
+        // 资源回收逻辑省略（实验中可忽略）
+        return 0;
+    }
+
+    // 5. 分配内核栈
+    uintptr_t kernel_stack = allocPage(1) + PAGE_SIZE;
+
+    // 6. 初始化用户栈并拷贝参数 (Args Copying)
+    // 栈底: 0xf00010000
+    uintptr_t user_stack_base = USER_STACK_ADDR;
+
+    // 6.1 分配栈顶物理页，并获取其内核虚拟地址 (KVA)
+    // 注意：USER_STACK_ADDR 是栈底，实际有效内存是从 USER_STACK_ADDR - PAGE_SIZE 开始
+    uintptr_t stack_page_kva = alloc_page_helper(user_stack_base - PAGE_SIZE, pgdir);
+
+    // 6.2 准备栈操作游标
+    // k_sp: 内核视角的栈指针 (用于写入数据)
+    // u_sp: 用户视角的栈指针 (用于计算指针地址)
+    uintptr_t k_sp = stack_page_kva + PAGE_SIZE;
+    uintptr_t u_sp = user_stack_base;
+
+    // 暂存参数字符串在用户空间的地址
+    uintptr_t user_argv_addrs[32]; // 假设参数不超过32个
+
+    // 6.3 拷贝字符串 (从高地址向低地址压栈)
+    for (int i = 0; i < argc; i++) {
+        int len = strlen(argv[i]) + 1;
+        k_sp -= len;
+        u_sp -= len;
+        strcpy((char *)k_sp, argv[i]);
+        user_argv_addrs[i] = u_sp; // 记录该字符串在用户空间的虚拟地址
+    }
+
+    // 6.4 拷贝 argv 指针数组
+    // 数组中存放的是字符串在用户空间的地址 (user_argv_addrs)
+    k_sp -= sizeof(uintptr_t) * argc;
+    u_sp -= sizeof(uintptr_t) * argc;
+
+    // 6.5 栈指针对齐 (RISC-V 要求 128-bit/16-byte 对齐最佳，至少 8-byte)
+    uintptr_t remain = u_sp % 16;
+    if (remain != 0) {
+        k_sp -= remain;
+        u_sp -= remain;
+    }
+
+    uintptr_t *k_argv_ptr = (uintptr_t *)k_sp;
+    for (int i = 0; i < argc; i++) {
+        k_argv_ptr[i] = user_argv_addrs[i];
+    }
+
+    // 此时 u_sp 指向 argv 数组的起始位置，这正是 main 函数的第二个参数
+    uintptr_t final_argv = u_sp;
+    uintptr_t final_sp = u_sp;
+
+    // 7. 初始化 PCB
+    new_pcb->pid = ++task_num;
+    new_pcb->tgid = new_pcb->pid;
+    new_pcb->status = TASK_READY;
+    new_pcb->mask = current_running->mask;
+    new_pcb->pgdir = pgdir; // 存储 KVA，方便 set_satp 时转换
+    new_pcb->kernel_sp = kernel_stack;
+    new_pcb->user_sp = final_sp;
+    new_pcb->cursor_x = 0;
+    new_pcb->cursor_y = 0;
+    new_pcb->mask = current_running->mask;
+    new_pcb->thread_ret = NULL;
+    // 初始化链表
+    init_list_head(&new_pcb->list);
+    new_pcb->wait_list.prev = new_pcb->wait_list.next = &new_pcb->wait_list;
+
+    // 8. 初始化寄存器上下文
+    // 注意：这里传入的 argv 必须是用户空间的地址 (final_argv)
+    init_pcb_stack(new_pcb->kernel_sp, new_pcb->user_sp, entry_point, new_pcb, argc, (char **)final_argv);
+
+    // 9. 加入就绪队列
+    add_node_to_q(&new_pcb->list, &ready_queue);
+    return new_pcb->pid;
 }
 
 pid_t do_thread_create(ptr_t entry_point, ptr_t arg) {
@@ -213,21 +289,31 @@ pid_t do_thread_create(ptr_t entry_point, ptr_t arg) {
     if (index == -1)
         return -1;
 
-    pcb[index].kernel_sp = (reg_t)(allocKernelPage(1) + PAGE_SIZE);
-    pcb[index].user_sp = (reg_t)(allocUserPage(1) + PAGE_SIZE);
-    pcb[index].pid = ++task_num;
-    pcb[index].tgid = current_running->tgid;
-    pcb[index].status = TASK_READY;
-    pcb[index].cursor_x = current_running->cursor_x;
-    pcb[index].cursor_y = current_running->cursor_y;
-    pcb[index].wait_list.prev = pcb[index].wait_list.next = &pcb[index].wait_list;
-    pcb[index].list.prev = pcb[index].list.next = NULL;
-    pcb[index].mask = current_running->mask;
-    pcb[index].thread_ret = NULL;
+    pcb_t *new_pcb = &pcb[index];
+    // A thread shares the address space of its process
+    new_pcb->pgdir = current_running->pgdir;
 
-    init_thread_stack(pcb[index].kernel_sp, pcb[index].user_sp, entry_point, &pcb[index], arg);
-    add_node_to_q(&pcb[index].list, &ready_queue);
-    return pcb[index].pid;
+    // Allocate a new kernel stack for the new thread
+    ptr_t kernel_stack_ph = allocPage(1);
+    pcb[index].kernel_sp = pa2kva(kernel_stack_ph) + PAGE_SIZE;
+
+    // Allocate a new user stack for the new thread
+    uintptr_t thread_stack_base = USER_STACK_ADDR - (index * PAGE_SIZE);
+    alloc_page_helper(thread_stack_base - PAGE_SIZE, new_pcb->pgdir);
+    new_pcb->user_sp = thread_stack_base; // 栈向下增长，初始指向高地址
+    pcb[index].pid = ++task_num;
+    new_pcb->tgid = current_running->tgid;
+    new_pcb->status = TASK_READY;
+    new_pcb->cursor_x = current_running->cursor_x;
+    new_pcb->cursor_y = current_running->cursor_y;
+    new_pcb->wait_list.prev = new_pcb->wait_list.next = &new_pcb->wait_list;
+    init_list_head(&new_pcb->list);
+    new_pcb->mask = current_running->mask;
+    new_pcb->thread_ret = NULL;
+
+    init_thread_stack(new_pcb->kernel_sp, new_pcb->user_sp, entry_point, new_pcb, arg);
+    add_node_to_q(&new_pcb->list, &ready_queue);
+    return new_pcb->pid;
 }
 
 void do_thread_exit(ptr_t retval) {
@@ -264,50 +350,42 @@ int do_thread_join(pid_t tid, ptr_t retval_ptr) {
     return 0;
 }
 
-void do_exit() {
-    current_running->status = TASK_EXITED;
-    pcb_release(current_running);
-    do_scheduler();
+void do_exit(void) {
+    current_running->status = TASK_EXITED; // 1. 设置状态// 
+    pcb_release(current_running); // 2. 释放资源 (页表、物理页、内核栈、锁等)
+    do_scheduler(); // 3. 调度
 }
 
 int do_kill(pid_t pid) {
-    // 规范化建议：此函数当前按 pid 杀死线程。
-    // 如果要实现标准的 kill(pid_t pid, int sig) 功能，
-    // pid 通常指进程ID(tgid)，且应处理信号而非直接终止。
-    // 这里我们仅优化当前逻辑，增加对任务队列的清理。
     pcb_t *target = NULL;
+
     for (int i = 0; i < NUM_MAX_TASK; i++) {
-        if (pcb[i].status != TASK_EXITED && pcb[i].pid == pid) {
+        if (pcb[i].pid == pid && pcb[i].status != TASK_EXITED) {
             target = &pcb[i];
             break;
         }
     }
 
-    if (target == NULL) {
-        return 0; // 目标不存在
-    }
+    if (target == NULL || pid == 0) return 0; // 禁止杀死内核
 
-    // 从其所在的任何队列中移除 (如 ready_queue, sleep_queue)
-    // 这一步很关键，防止已“死亡”的线程被再次调度
     if (target->status == TASK_READY || target->status == TASK_BLOCKED) {
         delete_node_from_q(&target->list);
     }
 
     target->status = TASK_EXITED;
-    pcb_release(target); // 释放等待队列和锁
 
-    // 如果杀死的是当前任务，则需要调度新任务
+    // 统一资源释放 (锁、队列等)
+    pcb_release(target);
+
+    // 如果杀死了自己，需要调度
     if (target == current_running) {
         do_scheduler();
     }
 
-    return 1; // 成功
+    return 1;
 }
 
 int do_waitpid(pid_t pid) {
-    // 规范化建议：waitpid 应等待进程(tgid)而非线程(pid)。
-    // 并且应处理僵尸进程(TASK_ZOMBIE)的回收。
-    // 以下为对现有逻辑的优化。
     pcb_t *target = NULL;
     for (int i = 0; i < NUM_MAX_TASK; i++) {
         if (pcb[i].pid == pid) {

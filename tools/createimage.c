@@ -22,8 +22,10 @@
 /* design your own task_info_t */
 typedef struct {
     char task_name[16];
-    int start_addr;
-    int block_nums;
+    uint32_t start_addr;
+    uint32_t block_nums;
+    uint64_t p_filesz;
+    uint64_t p_memsz;
 } task_info_t;
 
 #define TASK_MAXNUM 16
@@ -99,6 +101,8 @@ static void create_image(int nfiles, char *files[])
 
         int taskidx = fidx - 2;
         int start_addr = phyaddr;
+        uint64_t p_filesz = 0;
+        uint64_t p_memsz = 0;
 
         /* open input file */
         fp = fopen(*files, "r");
@@ -123,6 +127,12 @@ static void create_image(int nfiles, char *files[])
             if (strcmp(*files, "main") == 0) {
                 nbytes_kernel += get_filesz(phdr);
             }
+
+            /* accumulate file size and mem size */
+            if(phdr.p_type == PT_LOAD){
+                p_filesz += phdr.p_filesz;
+                p_memsz += phdr.p_memsz;
+            }
         }
 
         /* write padding bytes */
@@ -131,12 +141,18 @@ static void create_image(int nfiles, char *files[])
         if (strcmp(*files, "bootblock") == 0) {
             write_padding(img, &phyaddr, SECTOR_SIZE);
         } else {
-            write_padding(img, &phyaddr, phyaddr + (phyaddr & 1)); // 2字节对齐
-            strcpy(taskinfo[taskidx].task_name, *files);
-            taskinfo[taskidx].start_addr = start_addr;
-            taskinfo[taskidx].block_nums  = NBYTES2SEC(phyaddr) - start_addr / SECTOR_SIZE; // 考虑到一边上取整，一边下取整。这样的算法是合理的
-            printf("current phyaddr:%x\n", phyaddr);
-            printf("%s: start_addr is %x, blocknums is %d\n", taskinfo[taskidx].task_name, taskinfo[taskidx].start_addr,taskinfo[taskidx].block_nums);
+            write_padding(img, &phyaddr, phyaddr + (phyaddr & 1));
+            
+            if (taskidx >= 0) {
+                strcpy(taskinfo[taskidx].task_name, *files);
+                taskinfo[taskidx].start_addr = start_addr;
+                taskinfo[taskidx].block_nums = NBYTES2SEC(phyaddr) - start_addr / SECTOR_SIZE;
+                taskinfo[taskidx].p_filesz = p_filesz;
+                taskinfo[taskidx].p_memsz = p_memsz;
+                
+                printf("Info: %s: start=0x%x, blocks=%d, size=0x%lx, memsz=0x%lx\n", 
+                       *files, start_addr, taskinfo[taskidx].block_nums, p_filesz, p_memsz);
+            }
         }
         fclose(fp);
         files++;
@@ -160,6 +176,7 @@ static void create_image(int nfiles, char *files[])
     int batch_sector = NBYTES2SEC(phyaddr); /* batch will live at this sector */
     write_padding(img, &phyaddr, (batch_sector + 1) * SECTOR_SIZE);
     printf("Reserved one sector for batch file at sector %d, current phyaddr:%x\n", batch_sector, phyaddr);
+    fclose(img);
 }
 
 static void read_ehdr(Elf64_Ehdr * ehdr, FILE * fp)
@@ -276,7 +293,6 @@ static void error(char *fmt, ...)
     va_end(args);
     if (errno != 0) {
         perror(NULL);
-    
+    }
     exit(EXIT_FAILURE);
-}
 }

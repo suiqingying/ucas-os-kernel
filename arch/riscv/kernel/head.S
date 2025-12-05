@@ -6,8 +6,8 @@
 #include <asm.h>
 #include <csr.h>
 
-#define P_KERNEL_STACK		0x50500000 // Primary core's stack
-#define S_KERNEL_STACK    0x50600000 // Secondary core's stack
+.equ P_KERNEL_STACK, 0xffffffc050500000 // Primary core's stack
+.equ S_KERNEL_STACK, 0xffffffc050600000 // Secondary core's stack
 
 .section ".entry_function","ax"
 ENTRY(_start)
@@ -38,7 +38,7 @@ primary_core_setup:
     /* Setup tp to point to the initial PCB for the primary core */
     la tp, pid0_pcb
     /* Setup stack pointer for the primary core */
-    la sp, P_KERNEL_STACK
+    li sp, P_KERNEL_STACK
     
     /* Jump to main(hartid). The hartid (0) is already in a0. */
     j main
@@ -50,7 +50,7 @@ secondary_core_setup:
     /* Setup tp to point to the initial PCB for the secondary core */
     la tp, s_pid0_pcb 
     /* Setup stack pointer for the secondary core */
-    la sp, S_KERNEL_STACK
+    li sp, S_KERNEL_STACK
     
     /* Jump to main(hartid). The hartid (>0) is already in a0. */
     j main

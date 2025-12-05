@@ -1,29 +1,54 @@
 #include <os/kernel.h>
-#include <os/loader.h>
+#include <os/mm.h>
 #include <os/string.h>
 #include <os/task.h>
+#include <pgtable.h>
 #include <printk.h>
 #include <type.h>
 
-#define PIPE_LOC 0x54000000 /* address of pipe */
-/* Boot info offsets used by createimage.c */
-#define BOOT_LOADER_SIG_OFFSET 0x1fe
-#define BATCH_FILE_MAX_TASKS 16
-#define BATCH_FILE_TASK_NAME_LEN 16
+#define USER_ENTRY_POINT 0x10000
 
-uint64_t load_task_img(char *task_name) {
-    // load task via task name, thus the arg should be 'char *taskname'
-    for (int i = 0; i < TASK_MAXNUM; i++) {
-        if (tasks[i].block_nums > 0 && strcmp(task_name, tasks[i].task_name) == 0) {
-            uint64_t mem_addr = TASK_MEM_BASE + TASK_SIZE * i;
-            int start_sec = tasks[i].start_addr / 512;
-            bios_sd_read(TMP_MEM_BASE, tasks[i].block_nums, start_sec);
-            memcpy((uint8_t *)(uint64_t)(mem_addr), (uint8_t *)(uint64_t)(TMP_MEM_BASE + (tasks[i].start_addr - start_sec * 512)),
-                   tasks[i].block_nums * 512);
-            return mem_addr;
+uint64_t load_task_img(char *task_name, uintptr_t pgdir) {
+    int i;
+    for (i = 0; i < TASK_MAXNUM; i++) {
+        if (tasks[i].task_name[0] != '\0' && strcmp(task_name, tasks[i].task_name) == 0) {
+            break;
         }
     }
-    return 0;
+    if (i == TASK_MAXNUM) {
+        printk("Error: Task %s not found!\n", task_name);
+        return 0;
+    }
+
+    task_info_t *task = &tasks[i];
+    if (task->p_memsz == 0) return 0;
+
+    int start_sec = tasks[i].start_addr / 512;
+    int offset_in_sec = tasks[i].start_addr % 512;
+    bios_sd_read(TASK_MEM_BASE, tasks[i].block_nums, start_sec);
+
+    uint8_t *src_base = (uint8_t *)pa2kva(TASK_MEM_BASE) + offset_in_sec;
+    uint64_t user_va = USER_ENTRY_POINT, user_va_end = USER_ENTRY_POINT + tasks[i].p_memsz;
+    for (; user_va < user_va_end; user_va += PAGE_SIZE) {
+        uintptr_t page_addr = alloc_page_helper(user_va, pgdir);
+        uint64_t offset = user_va - USER_ENTRY_POINT;
+        if (offset < task->p_filesz) {
+            // 计算本页有多少有效数据
+            uint64_t file_remain = task->p_filesz - offset;
+            uint32_t copy_size = (file_remain > PAGE_SIZE) ? PAGE_SIZE : file_remain;
+
+            // 拷贝数据
+            memcpy((void *)page_addr, (void *)(src_base + offset), copy_size);
+            if (copy_size < PAGE_SIZE) memset((void *)(page_addr + copy_size), 0, PAGE_SIZE - copy_size);
+        } else {
+            // bss 段，清零
+            memset((uint8_t *)page_addr, 0, PAGE_SIZE);
+        }
+    }
+
+    // 刷新指令缓存，确保 CPU 能看到刚写入的代码
+    local_flush_icache_all();
+    return USER_ENTRY_POINT;
 }
 
 void do_list() {

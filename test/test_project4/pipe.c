@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
 	if (receiver == 0)
 	{
 		printf("pipe: failed to start receiver\n");
-		return;
+		return -1;
 	}
 
 	sys_sleep(1);
@@ -147,7 +147,7 @@ int main(int argc, char *argv[])
 	{
 		printf("pipe: failed to start sender\n");
 		sys_kill(receiver);
-		return;
+		return -1;
 	}
 
 	sys_waitpid(receiver);
