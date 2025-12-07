@@ -1024,3 +1024,95 @@ typedef struct pipe_page {
 ```
 
 ---
+
+## 8. Swap机制优化与调试增强
+
+#### 8.1 代码简化
+移除了复杂的Clock算法实现，采用更简单的线性扫描策略：
+
+**优化前的问题**：
+- 复杂的`page_frame_t`跟踪机制难以维护
+- Clock算法实现存在逻辑错误
+- 页面帧更新不完整，导致状态不一致
+
+**优化后的改进**：
+- 移除`page_frame_t`结构体和相关数组
+- 使用简单的线性扫描选择victim页面
+- 保留核心swap功能，提高代码可读性和可维护性
+- 修复`total_allocated_pages`计数错误
+
+#### 8.1.2 Swap空间扩展
+大幅扩展了SD卡上的swap存储空间：
+
+```c
+// 从4MB扩展到32MB
+#define MAX_SWAP_PAGES 8192         // 8192页 = 32MB
+// SD卡扇区范围：0x200000 - 0x280000
+```
+
+**扩展效果**：
+- 支持更大规模的内存交换
+- 避免swap空间成为瓶颈
+- 提高系统在内存压力下的稳定性
+
+#### 8.1.3 调试信息增强
+添加了详细的swap操作日志，便于观察和调试：
+
+**初始化信息**：
+```
+> [SWAP] Swap mechanism initialized:
+> [SWAP]   - Total swap pages: 8192 (32 MB)
+> [SWAP]   - Physical memory: 512 (2 MB)
+> [SWAP]   - Swap space range: 0x200000 - 0x280000
+> [SWAP]   - Swap buffer: 10 pages reserved
+```
+
+**内存压力检测**：
+```
+> [SWAP] Memory pressure detected! Need 5 pages, have 508/512 allocated
+```
+
+**Swap操作跟踪**：
+```
+> [SWAP] Starting swap out for process 1
+> [SWAP] Found swappable page at VA=0x10000, PA=0x80001000 (scanned 1 pages)
+> [SWAP] Writing page to SD card: swap_idx=0, sector=0x200000
+> [SWAP] Page swapped out successfully: VA=0x10000 -> swap_idx=0
+```
+
+### 8.2 已知限制与后续优化方向
+
+#### 8.2.1 多页分配限制
+**问题描述**：
+当前实现在分配多页时存在设计缺陷：
+```c
+// 当 numPage > 1 时，以下循环可能无法正常退出
+while (total_allocated_pages + numPage > TOTAL_PHYSICAL_PAGES - 10) {
+    // swap_out_page() 不会减少 total_allocated_pages
+    // 导致无限循环
+}
+```
+
+**临时解决方案**：
+- 建议测试程序每次只分配1页
+- 对于多页分配需求，可以分批进行
+
+**长期解决方案**：
+需要重新设计内存统计模型，区分：
+- 物理页面使用数
+- 逻辑页面分配数
+- 空闲链表页面数
+
+#### 8.2.2 Swap算法公平性
+**当前限制**：
+- 只能交换当前进程的页面
+- 无法缓解其他进程造成的内存压力
+- 简单线性扫描效率较低
+
+**改进方向**：
+1. 实现全局页面交换机制
+2. 使用更智能的页面选择算法
+3. 考虑页面访问频率和进程优先级
+
+
+---

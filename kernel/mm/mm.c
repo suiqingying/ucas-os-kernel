@@ -10,41 +10,27 @@
 static ptr_t kernMemCurr = FREEMEM_KERNEL;
 static ptr_t free_list_head = 0; // 空闲链表头
 
-// Page frame management for swap
-typedef struct page_frame {
-    uintptr_t va;           // Virtual address mapped to this frame
-    uintptr_t pgdir;        // Page directory of the process
-    int swap_idx;           // Index in swap space (-1 if not swapped)
-    int reference_bit;      // For Clock algorithm
-    int in_use;             // Whether this frame is allocated
-    struct page_frame *next; // For Clock algorithm circular list
-} page_frame_t;
-
-static page_frame_t page_frames[TOTAL_PHYSICAL_PAGES];
-static page_frame_t *clock_hand = NULL;  // Clock algorithm pointer
-static int swap_bitmap[MAX_SWAP_PAGES];  // Swap space allocation bitmap
+// Simple swap tracking
+static int swap_bitmap[MAX_SWAP_PAGES];  // Swap space allocation bitmap (8192 pages = 32MB)
 static int total_allocated_pages = 0;
 static int swap_enabled = 0;
+static int swap_victim_counter = 0;      // Simple counter for FIFO victim selection
 
 void init_swap() {
-    // Initialize page frames
-    for (int i = 0; i < TOTAL_PHYSICAL_PAGES; i++) {
-        page_frames[i].va = 0;
-        page_frames[i].pgdir = 0;
-        page_frames[i].swap_idx = -1;
-        page_frames[i].reference_bit = 0;
-        page_frames[i].in_use = 0;
-        page_frames[i].next = &page_frames[(i + 1) % TOTAL_PHYSICAL_PAGES];
-    }
-    clock_hand = &page_frames[0];
-    
     // Initialize swap bitmap
     for (int i = 0; i < MAX_SWAP_PAGES; i++) {
         swap_bitmap[i] = 0;  // 0 = free, 1 = used
     }
-    
+
+    swap_victim_counter = 0;
     swap_enabled = 1;
-    printk("> [SWAP] Swap mechanism initialized\n");
+
+    printk("> [SWAP] Swap mechanism initialized:\n");
+    printk("> [SWAP]   - Total swap pages: %d (%d MB)\n", MAX_SWAP_PAGES, (MAX_SWAP_PAGES * 4) / 1024);
+    printk("> [SWAP]   - Physical memory: %d pages (%d MB)\n", TOTAL_PHYSICAL_PAGES, (TOTAL_PHYSICAL_PAGES * 4) / 1024);
+    printk("> [SWAP]   - Swap space range: 0x%x - 0x%x\n",
+           SWAP_START_SECTOR, SWAP_START_SECTOR + MAX_SWAP_PAGES * 8);
+    printk("> [SWAP]   - Swap buffer: %d pages reserved\n", 10);
 }
 
 // Allocate a swap slot
@@ -66,78 +52,77 @@ static void free_swap_slot(int idx) {
 }
 
 
-// Clock algorithm to select a victim page
+// Simple swap out - find a swappable user page
 int swap_out_page() {
     if (!swap_enabled) return -1;
-    
-    int attempts = 0;
-    while (attempts < TOTAL_PHYSICAL_PAGES * 2) {
-        if (clock_hand->in_use && clock_hand->pgdir != 0) {
-            // Check if this is a user page (not kernel)
-            if (clock_hand->va < 0x8000000000000000UL) {
-                if (clock_hand->reference_bit == 0) {
-                    // Found victim
-                    page_frame_t *victim = clock_hand;
-                    clock_hand = clock_hand->next;
-                    
-                    // Get PTE
-                    uintptr_t pte_ptr = get_pteptr_of(victim->va, victim->pgdir);
-                    if (!pte_ptr) {
-                        victim->in_use = 0;
-                        return -1;
-                    }
-                    
-                    PTE *pte = (PTE *)pte_ptr;
-                    uintptr_t pa = get_pa(*pte);
-                    
-                    // Allocate swap slot
-                    int swap_idx = alloc_swap_slot();
-                    if (swap_idx < 0) {
-                        return -1;  // No swap space
-                    }
-                    
-                    // Write page to SD card
-                    uintptr_t kva = pa2kva(pa);
-                    uint32_t sector = SWAP_START_SECTOR + swap_idx * 8;  // 8 sectors per page
-                    sd_write(kva2pa(kva), 8, sector);
-                    
-                    // Update PTE: clear present bit, store swap index in software bits
-                    *pte = (*pte & ~_PAGE_PRESENT) | ((uint64_t)swap_idx << _PAGE_PFN_SHIFT) | _PAGE_SOFT;
-                    
-                    // Flush TLB
-                    local_flush_tlb_page(victim->va);
-                    
-                    // Free the physical page
-                    freePage(kva);
-                    // 不减少total_allocated_pages，因为freePage已经处理了
-                    // total_allocated_pages保持不变（页面只是移到空闲链表）
-                    
-                    // Mark frame as free
-                    victim->swap_idx = swap_idx;
-                    victim->in_use = 0;
-                    
-                    return swap_idx;
-                } else {
-                    // Give second chance
-                    clock_hand->reference_bit = 0;
+
+    printk("> [SWAP] Starting swap out for process %d\n", current_running->pid);
+
+    // For simplicity, we'll swap out from a fixed range of user virtual addresses
+    // This is a very basic approach - scan user address space for a present page
+
+    // Search user virtual address space (0x10000 - 0x7ffffffff000)
+    uintptr_t test_va = 0x10000;
+    uintptr_t end_va = 0x7ffffffff000;
+    int pages_scanned = 0;
+
+    while (test_va < end_va) {
+        pages_scanned++;
+        uintptr_t pte_ptr = get_pteptr_of(test_va, current_running->pgdir);
+        if (pte_ptr) {
+            PTE *pte = (PTE *)pte_ptr;
+            if (*pte & _PAGE_PRESENT) {
+                // Found a present user page, swap it out
+                uintptr_t pa = get_pa(*pte);
+                printk("> [SWAP] Found swappable page at VA=0x%lx, PA=0x%lx (scanned %d pages)\n",
+                       test_va, pa, pages_scanned);
+
+                // Allocate swap slot
+                int swap_idx = alloc_swap_slot();
+                if (swap_idx < 0) {
+                    printk("> [SWAP] No swap space available!\n");
+                    return -1;  // No swap space
                 }
+
+                // Write page to SD card
+                uintptr_t kva = pa2kva(pa);
+                uint32_t sector = SWAP_START_SECTOR + swap_idx * 8;  // 8 sectors per page
+                printk("> [SWAP] Writing page to SD card: swap_idx=%d, sector=0x%x\n",
+                       swap_idx, sector);
+                sd_write(kva2pa(kva), 8, sector);
+
+                // Update PTE: clear present bit, store swap index in software bits
+                *pte = (*pte & ~_PAGE_PRESENT) | ((uint64_t)swap_idx << _PAGE_PFN_SHIFT) | _PAGE_SOFT;
+
+                // Flush TLB
+                local_flush_tlb_page(test_va);
+
+                // Free the physical page (returns it to free list)
+                freePage(kva);
+
+                printk("> [SWAP] Page swapped out successfully: VA=0x%lx -> swap_idx=%d\n",
+                       test_va, swap_idx);
+                return swap_idx;
             }
         }
-        clock_hand = clock_hand->next;
-        attempts++;
+        test_va += PAGE_SIZE;
     }
-    
-    return -1;  // Failed to find victim
+
+    printk("> [SWAP] No suitable page found after scanning %d pages\n", pages_scanned);
+    return -1;  // No suitable page found
 }
 
 // Swap in a page from SD card
 void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
     if (!swap_enabled || swap_idx < 0 || swap_idx >= MAX_SWAP_PAGES) return;
-    
+
+    printk("> [SWAP] Swapping in page: VA=0x%lx, swap_idx=%d\n", va, swap_idx);
+
     // Allocate a new physical page
     ptr_t new_page = allocPage(1);
     if (new_page == 0) {
         // Out of memory, need to swap out first
+        printk("> [SWAP] No memory for swap in, triggering swap out first\n");
         if (swap_out_page() >= 0) {
             new_page = allocPage(1);
         }
@@ -146,11 +131,13 @@ void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
             return;
         }
     }
-    
+
     // Read page from SD card
     uint32_t sector = SWAP_START_SECTOR + swap_idx * 8;
+    printk("> [SWAP] Reading page from SD card: swap_idx=%d, sector=0x%x\n",
+           swap_idx, sector);
     sd_read(kva2pa(new_page), 8, sector);
-    
+
     // Update PTE
     uintptr_t pte_ptr = get_pteptr_of(va, pgdir);
     if (pte_ptr) {
@@ -159,23 +146,15 @@ void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
         set_attribute(pte, _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE |
                           _PAGE_EXEC | _PAGE_USER | _PAGE_ACCESSED | _PAGE_DIRTY);
         local_flush_tlb_page(va);
+        printk("> [SWAP] Page swapped in successfully: swap_idx=%d -> VA=0x%lx, PA=0x%lx\n",
+               swap_idx, va, kva2pa(new_page));
+    } else {
+        printk("> [SWAP] ERROR: Could not find PTE for VA=0x%lx\n", va);
     }
-    
+
     // Free swap slot
     free_swap_slot(swap_idx);
-    
-    // Track this page frame
-    for (int i = 0; i < TOTAL_PHYSICAL_PAGES; i++) {
-        if (!page_frames[i].in_use) {
-            page_frames[i].va = va;
-            page_frames[i].pgdir = pgdir;
-            page_frames[i].swap_idx = -1;
-            page_frames[i].reference_bit = 1;
-            page_frames[i].in_use = 1;
-            total_allocated_pages++;
-            break;
-        }
-    }
+    printk("> [SWAP] Released swap slot %d\n", swap_idx);
 }
 
 ptr_t allocPage(int numPage)
@@ -191,17 +170,26 @@ ptr_t allocPage(int numPage)
     // Check if we have enough physical pages
     if (total_allocated_pages + numPage > TOTAL_PHYSICAL_PAGES) {
         if (swap_enabled) {
+            printk("> [SWAP] Memory pressure detected! Need %d pages, have %d/%d allocated\n",
+                   numPage, total_allocated_pages, TOTAL_PHYSICAL_PAGES);
+
             // Try to swap out pages
+            int swap_attempts = 0;
             while (total_allocated_pages + numPage > TOTAL_PHYSICAL_PAGES - 10) {
+                swap_attempts++;
                 if (!swap_out_page()) {
+                    printk("> [SWAP] Failed to swap out page after %d attempts\n", swap_attempts);
                     break;  // Can't swap more
                 }
+                printk("> [SWAP] Successfully swapped out page (attempt %d), memory: %d/%d\n",
+                       swap_attempts, total_allocated_pages, TOTAL_PHYSICAL_PAGES);
 
                 // After swap_out, try to use freed page from free list
                 if (free_list_head != 0 && numPage == 1) {
                     ptr_t ret = free_list_head;
                     free_list_head = *(ptr_t *)free_list_head;
                     memset((void *)ret, 0, PAGE_SIZE);
+                    printk("> [SWAP] Using freed page from swap, total swap attempts: %d\n", swap_attempts);
                     return ret;
                 }
             }

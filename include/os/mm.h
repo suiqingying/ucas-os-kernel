@@ -44,7 +44,7 @@
 
 // Swap space configuration
 #define SWAP_START_SECTOR 0x200000  // Start sector for swap space on SD card
-#define MAX_SWAP_PAGES 1024         // Maximum pages that can be swapped
+#define MAX_SWAP_PAGES 8192         // Maximum pages that can be swapped (32MB)
 #define TOTAL_PHYSICAL_PAGES 512     // Total physical pages (2MB / 4KB) - reduced for swap testing
 
 extern ptr_t allocPage(int numPage);
