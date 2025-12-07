@@ -182,6 +182,21 @@ int main(void) {
                     // sys_waitpid(new_pid);
                 }
             }
+        } else if (strcmp(argv[0], "free") == 0) {
+            size_t free_mem = sys_get_free_memory();
+            if (argc == 2 && strcmp(argv[1], "-h") == 0) {
+                // Human-readable format
+                if (free_mem >= 1024 * 1024) {
+                    printf("Free memory: %lu MB\n", free_mem / (1024 * 1024));
+                } else if (free_mem >= 1024) {
+                    printf("Free memory: %lu KB\n", free_mem / 1024);
+                } else {
+                    printf("Free memory: %lu Bytes\n", free_mem);
+                }
+            } else {
+                // Default: bytes
+                printf("Free memory: %lu Bytes\n", free_mem);
+            }
         } else {
             printf("Error: Unknown command %s\n", buff);
         }

@@ -406,7 +406,269 @@ TL;DR：如果主核（Hart 0）在从核（Hart 1）还未完成启动前就取
 - 物理地址 (PA)：实际的物理内存地址，是硬件访问的地址。
 - 内核虚拟地址 (KVA)：内核空间使用的虚拟地址，通常映射到物理地址的高地址区域。
 
-## 十二 — P3 测试程序与 P4 虚拟内存的兼容性问题
+## 十三 — Task 2 关键 Bug 修复：进程切换时必须切换页表
+
+### 问题现象
+
+运行两个 `lock` 进程时，系统崩溃：
+```
+exception code: 2, Illegal instruction, epc 0, ra 0
+```
+
+### 问题根因
+
+在 `do_mutex_lock_acquire` 中，当进程因锁竞争失败而阻塞时，原代码**直接调用 `switch_to` 切换进程，但没有切换页表**：
+
+```c
+// 错误代码
+do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
+pcb_t *prior_running = current_running;
+current_running = get_pcb_from_node(seek_ready_node());
+switch_to(prior_running, current_running);  // ❌ 没有切换 satp！
+```
+
+**后果**：新进程使用旧进程的页表，虚拟地址映射到错误的物理地址，导致取指令失败。
+
+### 修复方案
+
+**所有进程切换必须通过 `do_scheduler()` 完成**，因为只有 `do_scheduler()` 会正确切换页表：
+
+```c
+// 正确代码
+do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
+do_scheduler();  // ✅ 自动处理页表切换
+```
+
+### 设计原则
+
+任何导致进程切换的操作（锁阻塞、信号量、条件变量、sleep 等）都必须调用 `do_scheduler()`，不能手动调用 `switch_to()`。
+# Task 2: 按需调页实现与关键 Bug 修复
+
+### 1. 实现概述
+本阶段完成了 Task 2 的核心功能：**按需调页（On-demand Paging）**，并在调试过程中发现并修复了多个与虚拟内存管理、进程切换和并发相关的严重 Bug。
+
+### 2. 缺页异常处理 (`handle_page_fault`)
+
+#### 实现要点：
+```c
+void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause) {
+    // 1. 对齐到页边界
+    uintptr_t fault_va = stval & ~(PAGE_SIZE - 1);
+    
+    // 2. 建立映射（alloc_page_helper 会检查是否已存在）
+    alloc_page_helper(fault_va, current_running->pgdir);
+    
+    // 3. 刷新 TLB（只刷新这一页即可）
+    local_flush_tlb_page(fault_va);
+}
+```
+
+**关键改进**：
+- **地址对齐**：确保缺页地址对齐到 4KB 页边界
+- **精确 TLB 刷新**：从 `local_flush_tlb_all()` 优化为 `local_flush_tlb_page()`，减少性能开销
+- **幂等性**：`alloc_page_helper` 会检查页表项是否已存在，避免重复分配
+
+### 3. 内存分配优化 (`alloc_page_helper`)
+
+#### 核心改进：
+```c
+uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir) {
+    // 1. 入口地址对齐
+    va = va & ~(PAGE_SIZE - 1);
+    
+    // ... 三级页表遍历与分配 ...
+    
+    // 2. 分配物理页并清零
+    ptr_t final_page = allocPage(1);
+    memset((void *)final_page, 0, PAGE_SIZE);  // 防止访问到脏数据
+    
+    // 3. 设置正确的权限位
+    set_pfn(&pte[vpn0], kva2pa(final_page) >> NORMAL_PAGE_SHIFT);
+    set_attribute(&pte[vpn0], _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE | 
+                              _PAGE_EXEC | _PAGE_USER | _PAGE_ACCESSED | _PAGE_DIRTY);
+    
+    return final_page;
+}
+```
+
+**关键修复**：
+- **页面清零**：新分配的物理页必须清零，防止用户进程读取到内核或其他进程的残留数据（安全漏洞）
+- **地址对齐**：确保所有虚拟地址都对齐到页边界
+- **权限正确性**：叶子节点设置完整权限（R/W/X/U/A/D），中间节点只设置 V 位
+
+### 4. 用户栈预分配
+
+#### 问题场景：
+当用户程序参数较多或字符串较长时，参数拷贝操作可能跨越页边界：
+```text
+用户栈布局：
+0xf00010000  <--- 栈底（第一页）
+    |
+    | argv 字符串可能跨页到这里
+    |
+0xf0000f000  <--- 第二页（未映射）
+```
+
+#### 解决方案：
+```c
+// 在 do_exec 中预分配 2 页用户栈
+uintptr_t stack_page_kva = alloc_page_helper(user_stack_base - PAGE_SIZE, pgdir);
+alloc_page_helper(user_stack_base - 2 * PAGE_SIZE, pgdir);  // 防止跨页访问
+```
+
+### 5. 最关键的 Bug：进程切换时未切换页表
+
+#### 问题根源：
+在 `do_mutex_lock_acquire` 中，当进程因锁竞争失败而阻塞时，代码直接调用 `switch_to` 切换到下一个进程：
+
+**原始错误代码**：
+```c
+void do_mutex_lock_acquire(int mlock_idx) {
+    if (spin_lock_try_acquire(&mlocks[mlock_idx].lock)) {
+        mlocks[mlock_idx].pid = current_running->pid;
+        return;
+    }
+    // 获取锁失败
+    do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
+    pcb_t *prior_running = current_running;
+    current_running = get_pcb_from_node(seek_ready_node());
+    current_running->status = TASK_RUNNING;
+    switch_to(prior_running, current_running);  // ❌ 没有切换页表！
+}
+```
+
+#### 问题表现：
+1. **现象**：运行单个 `rw` 测试正常，但运行两个 `lock` 进程时立即崩溃
+2. **错误信息**：`exception code: 2, Illegal instruction, epc 0, ra 0`
+3. **时序分析**：
+   ```
+   T1: lock进程1（pid=2）运行，使用页表 pgdir_2
+   T2: lock进程2（pid=3）启动，尝试获取同一个锁
+   T3: 进程3获取锁失败，在 do_mutex_lock_acquire 中被阻塞
+   T4: 直接调用 switch_to 切换回进程2
+   T5: ❌ 问题：satp 仍然指向进程3的页表 pgdir_3
+   T6: 进程2 尝试执行代码，虚拟地址 0x10000 通过 pgdir_3 映射到错误的物理地址
+   T7: CPU 取指令失败，触发非法指令异常（epc=0 表示页表项无效）
+   ```
+
+#### 正确修复：
+```c
+void do_mutex_lock_acquire(int mlock_idx) {
+    if (spin_lock_try_acquire(&mlocks[mlock_idx].lock)) {
+        mlocks[mlock_idx].pid = current_running->pid;
+        return;
+    }
+    // 获取锁失败，阻塞当前进程并调度
+    do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
+    do_scheduler();  // ✅ 使用调度器，确保页表正确切换
+}
+```
+
+`do_scheduler` 中的页表切换逻辑：
+```c
+void do_scheduler(void) {
+    // ... 选择下一个进程 ...
+    
+    // 切换页表
+    uintptr_t pgdir_pa = kva2pa(current_running->pgdir);
+    set_satp(SATP_MODE_SV39, 0, pgdir_pa >> NORMAL_PAGE_SHIFT);  // 切换 satp
+    
+    switch_to(prior_running, current_running);
+}
+```
+
+### 6. 调度器中的缓存刷新优化
+
+#### 原始问题：
+```c
+set_satp(SATP_MODE_SV39, 0, pgdir_pa >> NORMAL_PAGE_SHIFT);
+local_flush_icache_all();  // ❌ 不必要的指令缓存刷新
+```
+
+#### 问题分析：
+- `local_flush_icache_all()` 会清空整个指令缓存，严重影响性能
+- 页表切换不需要刷新指令缓存（代码本身没变，只是映射关系变了）
+- `set_satp` 内部已经包含 `sfence.vma`（TLB 刷新），足够保证正确性
+
+#### 修复：
+```c
+set_satp(SATP_MODE_SV39, 0, pgdir_pa >> NORMAL_PAGE_SHIFT);
+// 移除 local_flush_icache_all()
+```
+
+**注意**：只有在加载新代码到内存时（如 `load_task_img` 完成后）才需要 `fence.i`。
+
+### 7. 问题总结与经验教训
+
+| 问题类型 | 根本原因 | 解决方案 | 教训 |
+|---------|---------|---------|------|
+| **锁竞争时崩溃** | `do_mutex_lock_acquire` 中手动切换进程未切换页表 | 改为调用 `do_scheduler()` | 任何进程切换必须通过调度器，确保页表切换 |
+| **随机非法指令** | 新分配的页面未清零，包含脏数据 | 在 `alloc_page_helper` 中添加 `memset` | 安全性：所有新页必须清零 |
+| **参数传递失败** | 用户栈只分配 1 页，参数跨页时缺页 | 预分配 2 页用户栈 | 栈操作可能跨页，需预留空间 |
+| **缺页处理慢** | 每次缺页刷新全部 TLB | 改为 `local_flush_tlb_page()` | 精确操作，减少不必要的开销 |
+| **O2 优化异常** | 未对齐地址 + 未初始化内存暴露问题 | 地址对齐 + 页面清零 | O2 优化会改变执行顺序，暴露隐藏 Bug |
+
+### 8. 关键设计原则
+
+#### 原则 1：进程切换的统一性
+**所有导致进程切换的操作必须通过 `do_scheduler()` 完成**，包括：
+- 时间片耗尽（定时器中断）
+- 主动让出 CPU（`sys_yield`）
+- 进程阻塞（锁、信号量、sleep）
+- 进程退出或被杀死
+
+**错误示例**（手动切换）：
+```c
+current_running = next_pcb;
+switch_to(old, new);  // ❌ 缺少页表切换
+```
+
+**正确示例**（通过调度器）：
+```c
+do_block(&current_running->list, &wait_queue);
+do_scheduler();  // ✅ 自动处理页表切换
+```
+
+#### 原则 2：内存安全性
+- 所有新分配的页面必须清零（`memset`）
+- 用户可访问的内存必须设置 `_PAGE_USER` 权限
+- 中间页表项不能设置 `_PAGE_USER`（RISC-V 规范）
+
+#### 原则 3：地址对齐
+- 所有虚拟地址操作前必须对齐到页边界：`va & ~(PAGE_SIZE - 1)`
+- 页表项中的 PPN 移位时必须正确：`>> NORMAL_PAGE_SHIFT`
+
+### 9. 验证与测试
+
+#### 测试用例 1：基本内存读写（rw）
+```bash
+> root@UCAS_OS: exec rw 0x3343 0x7d84 0x913
+0x3343, 127501189
+0x7d84, 1025670572
+0x913, 120064583
+Success!
+```
+✅ 通过（O0 和 O2 均正常）
+
+#### 测试用例 2：多进程锁竞争（lock）
+```bash
+> root@UCAS_OS: exec lock 7 &
+Info: excute lock successfully, pid = 2
+> root@UCAS_OS: exec lock 8 &
+Info: excute lock successfully, pid = 3
+> [TASK] Applying for a lock.
+> [TASK] Has acquired lock and running.(0)
+> [TASK] Has acquired lock and running.(1)
+```
+✅ 通过（修复前崩溃，修复后正常运行）
+
+### 10. 后续优化方向
+1. **按需分配优化**：目前仍在 `do_exec` 时预分配所有代码段，可改为真正的按需分配
+2. **内存回收**：实现 `freePage` 和 `free_pgtable_pages`，支持进程退出时回收内存
+3. **页面换出**：实现 Task 3 的 Swap 机制，支持物理内存不足时的页面置换
+4. **写时复制**：优化 `fork` 系统调用，实现 Copy-on-Write
+
+## 10. P3 测试程序与 P4 虚拟内存的兼容性问题
 
 ### 问题发现
 
@@ -452,39 +714,162 @@ Producer 和 Consumer 子进程通过这个地址通信：
 
 曾尝试在缺页处理中对 `0x50000000 - 0x60000000` 地址范围使用恒等映射，使所有进程共享同一物理页。但这只是权宜之计，不符合虚拟内存的设计原则，故已撤销。
 
-## 十三 — Task 2 关键 Bug 修复：进程切换时必须切换页表
+---
 
-### 问题现象
 
-运行两个 `lock` 进程时，系统崩溃：
-```
-exception code: 2, Illegal instruction, epc 0, ra 0
-```
+## Task 2 & 3 & 4 实验总结
 
-### 问题根因
+### 一、实验完成情况
 
-在 `do_mutex_lock_acquire` 中，当进程因锁竞争失败而阻塞时，原代码**直接调用 `switch_to` 切换进程，但没有切换页表**：
+本阶段完成了 **A-core / C-core** 的核心要求：
+
+1. **任务二：按需调页（On-demand Paging）**
+   - 实现了缺页异常处理程序 [`handle_page_fault()`](kernel/irq/irq.c:33)
+   - 支持动态页表分配，只在实际访问时才分配物理页框
+   - 通过 `fly` 和 `rw` 测试程序验证功能正确性
+
+2. **任务三：换页机制（Page Swap）**
+   - 实现了基于 Clock 算法的页面替换机制
+   - 在 SD 卡上建立了 swap 空间管理
+   - 实现了页面换出 [`swap_out_page()`](kernel/mm/mm.c:70) 和换入 [`swap_in_page()`](kernel/mm/mm.c:133) 功能
+   - 支持物理内存不足时自动换页
+
+3. **任务四：系统可用内存查看**
+   - 实现了 [`sys_get_free_memory()`](kernel/mm/mm.c:219) 系统调用
+   - 在 Shell 中添加了 `free` 命令，支持 `-h` 选项显示人类可读格式
+   - 可实时查看系统剩余物理内存
+
+### 二、关键实现细节
+
+#### 1. 缺页处理机制 (`irq.c`)
+
+在 [`handle_page_fault()`](kernel/irq/irq.c:33) 中实现了两种缺页情况的处理：
+
+- **换页缺页**：检查 PTE 的 `_PAGE_SOFT` 位，如果页面已被换出到 SD 卡，则调用 [`swap_in_page()`](kernel/mm/mm.c:133) 将其换入
+- **首次访问缺页**：调用 [`alloc_page_helper()`](kernel/mm/mm.c:285) 为虚拟地址分配新的物理页框
 
 ```c
-// 错误代码
-do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
-pcb_t *prior_running = current_running;
-current_running = get_pcb_from_node(seek_ready_node());
-switch_to(prior_running, current_running);  // ❌ 没有切换 satp！
+void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause){
+    uintptr_t fault_va = stval & ~(PAGE_SIZE - 1);
+    
+    // Check if page is swapped out
+    uintptr_t pte_ptr = get_pteptr_of(fault_va, current_running->pgdir);
+    if (pte_ptr) {
+        PTE *pte = (PTE *)pte_ptr;
+        if ((*pte & _PAGE_SOFT) && !(*pte & _PAGE_PRESENT)) {
+            int swap_idx = (*pte >> _PAGE_PFN_SHIFT) & 0x3FF;
+            swap_in_page(fault_va, current_running->pgdir, swap_idx);
+            local_flush_tlb_page(fault_va);
+            return;
+        }
+    }
+    
+    alloc_page_helper(fault_va, current_running->pgdir);
+    local_flush_tlb_page(fault_va);
+}
 ```
 
-**后果**：新进程使用旧进程的页表，虚拟地址映射到错误的物理地址，导致取指令失败。
+#### 2. 换页机制 (`mm.c`)
 
-### 修复方案
+**数据结构设计**：
+- [`page_frame_t`](kernel/mm/mm.c:14)：页框管理结构，记录虚拟地址、页目录、swap 索引、引用位等信息
+- [`page_frames[]`](kernel/mm/mm.c:23)：全局页框数组，管理所有物理页框
+- [`clock_hand`](kernel/mm/mm.c:24)：Clock 算法的指针
+- [`swap_bitmap[]`](kernel/mm/mm.c:25)：SD 卡 swap 空间的位图管理
 
-**所有进程切换必须通过 `do_scheduler()` 完成**，因为只有 `do_scheduler()` 会正确切换页表：
-
+**Clock 页面替换算法**：
 ```c
-// 正确代码
-do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
-do_scheduler();  // ✅ 自动处理页表切换
+int swap_out_page() {
+    while (attempts < TOTAL_PHYSICAL_PAGES * 2) {
+        if (clock_hand->in_use && clock_hand->pgdir != 0) {
+            if (clock_hand->va < 0x8000000000000000UL) {  // 用户页
+                if (clock_hand->reference_bit == 0) {
+                    // 找到牺牲页，换出到 SD 卡
+                    // ...
+                } else {
+                    clock_hand->reference_bit = 0;  // 给第二次机会
+                }
+            }
+        }
+        clock_hand = clock_hand->next;
+        attempts++;
+    }
+}
 ```
 
-### 设计原则
+**SD 卡 Swap 空间管理**：
+- 起始扇区：`SWAP_START_SECTOR = 0x200000`
+- 最大页数：`MAX_SWAP_PAGES = 1024`
+- 每页占用 8 个扇区（4KB = 8 × 512B）
 
-任何导致进程切换的操作（锁阻塞、信号量、条件变量、sleep 等）都必须调用 `do_scheduler()`，不能手动调用 `switch_to()`。
+#### 3. 内存统计功能
+
+[`get_free_memory()`](kernel/mm/mm.c:219) 实现：
+- 遍历空闲链表统计空闲页数
+- 计算未分配的内核内存
+- 返回总的可用字节数
+
+Shell 中的 `free` 命令支持：
+```bash
+> free          # 显示字节数
+> free -h       # 人类可读格式（MB/KB/Bytes）
+```
+
+### 三、遇到的主要问题与解决方案
+
+| 问题现象 | 原因分析 | 解决方案 |
+| :--- | :--- | :--- |
+| **换页后程序崩溃** | PTE 中 swap 索引的存储位置不正确，导致换入时读取错误数据 | 将 swap 索引存储在 PTE 的 PFN 字段（10-53位），并设置 `_PAGE_SOFT` 标志位 |
+| **Clock 算法死循环** | 所有页面的 reference_bit 都为 1，无法找到牺牲页 | 增加最大尝试次数限制，并在第二轮扫描时强制选择页面 |
+| **SD 卡读写失败** | 一次性读写扇区数过多导致 BIOS 函数失败 | 限制每次最多读写 8 个扇区（一个页面） |
+| **内存泄漏** | 换出页面后未正确释放物理页框 | 在 [`swap_out_page()`](kernel/mm/mm.c:70) 中调用 [`freePage()`](kernel/mm/mm.c:208) 释放页框 |
+| **TLB 一致性问题** | 换页后未刷新 TLB，导致访问旧的映射 | 在换入/换出后都调用 [`local_flush_tlb_page()`](arch/riscv/include/pgtable.h:26) |
+
+### 四、性能优化
+
+1. **延迟换页触发**：只有当物理内存使用率超过阈值（`TOTAL_PHYSICAL_PAGES - 100`）时才触发换页
+2. **批量 TLB 刷新**：使用 `local_flush_tlb_page()` 只刷新单个页面，而非全局刷新
+3. **空闲链表管理**：使用链表管理释放的页框，提高分配效率
+
+### 五、测试验证
+
+1. **按需调页测试**：
+   - 运行 `fly` 程序，验证动态页面分配
+   - 运行 `rw` 程序，测试读写不同地址的页面
+
+2. **换页机制测试**：
+   - 分配大量内存触发换页
+   - 验证换出和换入的正确性
+   - 检查 swap 空间的分配和释放
+
+3. **内存统计测试**：
+   - 使用 `free` 命令查看初始内存
+   - 运行程序后再次查看，验证内存变化
+   - 使用 `free -h` 验证人类可读格式
+
+### 六、后续改进方向
+
+1. **更高级的替换算法**：可以实现 LRU 或 LFU 算法，提高换页效率
+2. **页面预取**：预测即将访问的页面，提前换入
+3. **压缩换页**：在换出时压缩页面内容，节省 SD 卡空间
+4. **多级 swap**：支持多个 swap 分区，提高并发性能
+5. **内存碎片整理**：定期整理物理内存，减少碎片
+
+### 七、关键代码文件清单
+
+- [`kernel/mm/mm.c`](kernel/mm/mm.c)：内存管理核心实现
+  - [`init_swap()`](kernel/mm/mm.c:29)：初始化换页机制
+  - [`swap_out_page()`](kernel/mm/mm.c:70)：页面换出
+  - [`swap_in_page()`](kernel/mm/mm.c:133)：页面换入
+  - [`get_free_memory()`](kernel/mm/mm.c:219)：获取可用内存
+  
+- [`kernel/irq/irq.c`](kernel/irq/irq.c)：异常处理
+  - [`handle_page_fault()`](kernel/irq/irq.c:33)：缺页异常处理
+  
+- [`test/shell.c`](test/shell.c)：Shell 命令
+  - `free` 命令实现（第 185-199 行）
+  
+- [`include/os/mm.h`](include/os/mm.h)：内存管理接口定义
+  - Swap 相关宏定义和函数声明
+
+---

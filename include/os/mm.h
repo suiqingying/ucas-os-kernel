@@ -42,6 +42,11 @@
 #define ROUND(a, n) (((((uint64_t)(a)) + (n) - 1)) & ~((n) - 1))
 #define ROUNDDOWN(a, n) (((uint64_t)(a)) & ~((n) - 1))
 
+// Swap space configuration
+#define SWAP_START_SECTOR 0x200000  // Start sector for swap space on SD card
+#define MAX_SWAP_PAGES 1024         // Maximum pages that can be swapped
+#define TOTAL_PHYSICAL_PAGES 3584   // Total physical pages (14MB / 4KB)
+
 extern ptr_t allocPage(int numPage);
 
 void freePage(ptr_t baseAddr);
@@ -52,6 +57,14 @@ extern void *kmalloc(size_t size);
 extern void share_pgtable(uintptr_t dest_pgdir, uintptr_t src_pgdir);
 extern uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir);
 extern void free_pgtable_pages(uintptr_t pgdir);
+
+// Swap mechanism functions
+extern void init_swap();
+extern int swap_out_page();
+extern void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx);
+
+// Memory statistics
+extern size_t get_free_memory();
 
 // TODO [P4-task4]:shm_page_get/dt */
 uintptr_t shm_page_get(int key);

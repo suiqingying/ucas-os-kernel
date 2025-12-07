@@ -34,6 +34,20 @@ void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause){
     // 对齐到页边界
     uintptr_t fault_va = stval & ~(PAGE_SIZE - 1);
     
+    // Check if page is swapped out
+    uintptr_t pte_ptr = get_pteptr_of(fault_va, current_running->pgdir);
+    if (pte_ptr) {
+        PTE *pte = (PTE *)pte_ptr;
+        // Check if page is in swap (SOFT bit set, PRESENT bit clear)
+        if ((*pte & _PAGE_SOFT) && !(*pte & _PAGE_PRESENT)) {
+            // Extract swap index from PTE
+            int swap_idx = (*pte >> _PAGE_PFN_SHIFT) & 0x3FF;  // Lower 10 bits
+            swap_in_page(fault_va, current_running->pgdir, swap_idx);
+            local_flush_tlb_page(fault_va);
+            return;
+        }
+    }
+    
     // 建立映射（alloc_page_helper会检查是否已存在）
     alloc_page_helper(fault_va, current_running->pgdir);
     
@@ -50,9 +64,9 @@ void init_exception() {
     exc_table[EXCC_LOAD_ACCESS] = handle_other;
     exc_table[EXCC_STORE_ACCESS] = handle_other;
     exc_table[EXCC_SYSCALL] = handle_syscall;
-    exc_table[EXCC_INST_PAGE_FAULT] = handle_other;
-    exc_table[EXCC_LOAD_PAGE_FAULT] = handle_other;
-    exc_table[EXCC_STORE_PAGE_FAULT] = handle_other;
+    exc_table[EXCC_INST_PAGE_FAULT] = handle_page_fault;
+    exc_table[EXCC_LOAD_PAGE_FAULT] = handle_page_fault;
+    exc_table[EXCC_STORE_PAGE_FAULT] = handle_page_fault;
     /* initialize irq_table */
     /* NOTE: handle_int, handle_other, etc.*/
     irq_table[IRQC_U_SOFT] = handle_other;

@@ -1,19 +1,207 @@
 #include <os/mm.h>
 #include <os/string.h>
+#include <os/sched.h>
 #include <printk.h>
 #include <type.h>
+#include <pgtable.h>
+#include <common.h>
+
 // 使用内核虚拟地址管理动态内存
 static ptr_t kernMemCurr = FREEMEM_KERNEL;
 static ptr_t free_list_head = 0; // 空闲链表头
 
-// [Debug] 声明一个变量记录上一次的值，用于检测回滚
-static ptr_t last_mem_curr = 0;
+// Page frame management for swap
+typedef struct page_frame {
+    uintptr_t va;           // Virtual address mapped to this frame
+    uintptr_t pgdir;        // Page directory of the process
+    int swap_idx;           // Index in swap space (-1 if not swapped)
+    int reference_bit;      // For Clock algorithm
+    int in_use;             // Whether this frame is allocated
+    struct page_frame *next; // For Clock algorithm circular list
+} page_frame_t;
+
+static page_frame_t page_frames[TOTAL_PHYSICAL_PAGES];
+static page_frame_t *clock_hand = NULL;  // Clock algorithm pointer
+static int swap_bitmap[MAX_SWAP_PAGES];  // Swap space allocation bitmap
+static int total_allocated_pages = 0;
+static int swap_enabled = 0;
+
+void init_swap() {
+    // Initialize page frames
+    for (int i = 0; i < TOTAL_PHYSICAL_PAGES; i++) {
+        page_frames[i].va = 0;
+        page_frames[i].pgdir = 0;
+        page_frames[i].swap_idx = -1;
+        page_frames[i].reference_bit = 0;
+        page_frames[i].in_use = 0;
+        page_frames[i].next = &page_frames[(i + 1) % TOTAL_PHYSICAL_PAGES];
+    }
+    clock_hand = &page_frames[0];
+    
+    // Initialize swap bitmap
+    for (int i = 0; i < MAX_SWAP_PAGES; i++) {
+        swap_bitmap[i] = 0;  // 0 = free, 1 = used
+    }
+    
+    swap_enabled = 1;
+    printk("> [SWAP] Swap mechanism initialized\n");
+}
+
+// Allocate a swap slot
+static int alloc_swap_slot() {
+    for (int i = 0; i < MAX_SWAP_PAGES; i++) {
+        if (swap_bitmap[i] == 0) {
+            swap_bitmap[i] = 1;
+            return i;
+        }
+    }
+    return -1;  // No free swap slot
+}
+
+// Free a swap slot
+static void free_swap_slot(int idx) {
+    if (idx >= 0 && idx < MAX_SWAP_PAGES) {
+        swap_bitmap[idx] = 0;
+    }
+}
+
+
+// Clock algorithm to select a victim page
+int swap_out_page() {
+    if (!swap_enabled) return -1;
+    
+    int attempts = 0;
+    while (attempts < TOTAL_PHYSICAL_PAGES * 2) {
+        if (clock_hand->in_use && clock_hand->pgdir != 0) {
+            // Check if this is a user page (not kernel)
+            if (clock_hand->va < 0x8000000000000000UL) {
+                if (clock_hand->reference_bit == 0) {
+                    // Found victim
+                    page_frame_t *victim = clock_hand;
+                    clock_hand = clock_hand->next;
+                    
+                    // Get PTE
+                    uintptr_t pte_ptr = get_pteptr_of(victim->va, victim->pgdir);
+                    if (!pte_ptr) {
+                        victim->in_use = 0;
+                        return -1;
+                    }
+                    
+                    PTE *pte = (PTE *)pte_ptr;
+                    uintptr_t pa = get_pa(*pte);
+                    
+                    // Allocate swap slot
+                    int swap_idx = alloc_swap_slot();
+                    if (swap_idx < 0) {
+                        return -1;  // No swap space
+                    }
+                    
+                    // Write page to SD card
+                    uintptr_t kva = pa2kva(pa);
+                    uint32_t sector = SWAP_START_SECTOR + swap_idx * 8;  // 8 sectors per page
+                    sd_write(kva2pa(kva), 8, sector);
+                    
+                    // Update PTE: clear present bit, store swap index in software bits
+                    *pte = (*pte & ~_PAGE_PRESENT) | ((uint64_t)swap_idx << _PAGE_PFN_SHIFT) | _PAGE_SOFT;
+                    
+                    // Flush TLB
+                    local_flush_tlb_page(victim->va);
+                    
+                    // Free the physical page
+                    freePage(kva);
+                    total_allocated_pages--;
+                    
+                    // Mark frame as free
+                    victim->swap_idx = swap_idx;
+                    victim->in_use = 0;
+                    
+                    return swap_idx;
+                } else {
+                    // Give second chance
+                    clock_hand->reference_bit = 0;
+                }
+            }
+        }
+        clock_hand = clock_hand->next;
+        attempts++;
+    }
+    
+    return -1;  // Failed to find victim
+}
+
+// Swap in a page from SD card
+void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
+    if (!swap_enabled || swap_idx < 0 || swap_idx >= MAX_SWAP_PAGES) return;
+    
+    // Allocate a new physical page
+    ptr_t new_page = allocPage(1);
+    if (new_page == 0) {
+        // Out of memory, need to swap out first
+        if (swap_out_page() >= 0) {
+            new_page = allocPage(1);
+        }
+        if (new_page == 0) {
+            printk("FATAL: Cannot allocate page for swap in\n");
+            return;
+        }
+    }
+    
+    // Read page from SD card
+    uint32_t sector = SWAP_START_SECTOR + swap_idx * 8;
+    sd_read(kva2pa(new_page), 8, sector);
+    
+    // Update PTE
+    uintptr_t pte_ptr = get_pteptr_of(va, pgdir);
+    if (pte_ptr) {
+        PTE *pte = (PTE *)pte_ptr;
+        set_pfn(pte, kva2pa(new_page) >> NORMAL_PAGE_SHIFT);
+        set_attribute(pte, _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE |
+                          _PAGE_EXEC | _PAGE_USER | _PAGE_ACCESSED | _PAGE_DIRTY);
+        local_flush_tlb_page(va);
+    }
+    
+    // Free swap slot
+    free_swap_slot(swap_idx);
+    
+    // Track this page frame
+    for (int i = 0; i < TOTAL_PHYSICAL_PAGES; i++) {
+        if (!page_frames[i].in_use) {
+            page_frames[i].va = va;
+            page_frames[i].pgdir = pgdir;
+            page_frames[i].swap_idx = -1;
+            page_frames[i].reference_bit = 1;
+            page_frames[i].in_use = 1;
+            total_allocated_pages++;
+            break;
+        }
+    }
+}
 
 ptr_t allocPage(int numPage)
 {
-    // 必须确保 kernMemCurr 是静态/全局的，并且每次都更新
+    // Try to allocate from free list first
+    if (free_list_head != 0 && numPage == 1) {
+        ptr_t ret = free_list_head;
+        free_list_head = *(ptr_t *)free_list_head;
+        memset((void *)ret, 0, PAGE_SIZE);
+        return ret;
+    }
+    
+    // Check if we need to swap
+    if (swap_enabled && total_allocated_pages >= TOTAL_PHYSICAL_PAGES - 100) {
+        // Try to swap out a page
+        swap_out_page();
+    }
+    
+    // Allocate from kernel memory
     ptr_t ret = ROUND(kernMemCurr, PAGE_SIZE);
     kernMemCurr = ret + numPage * PAGE_SIZE;
+    
+    // Track allocation
+    if (numPage == 1) {
+        total_allocated_pages++;
+    }
+    
     return ret;
 }
 
@@ -21,6 +209,29 @@ void freePage(ptr_t baseAddr) {
     // 将释放的页插入空闲链表头部
     *(ptr_t *)baseAddr = free_list_head;
     free_list_head = baseAddr;
+    
+    if (total_allocated_pages > 0) {
+        total_allocated_pages--;
+    }
+}
+
+// Get free memory in bytes
+size_t get_free_memory() {
+    // Calculate free memory from free list
+    int free_pages = 0;
+    ptr_t p = free_list_head;
+    while (p != 0 && free_pages < 10000) {  // Prevent infinite loop
+        free_pages++;
+        p = *(ptr_t *)p;
+    }
+    
+    // Add unallocated memory
+    ptr_t mem_end = 0xffffffc060000000;  // End of physical memory
+    if (kernMemCurr < mem_end) {
+        free_pages += (mem_end - kernMemCurr) / PAGE_SIZE;
+    }
+    
+    return free_pages * PAGE_SIZE;
 }
 
 // 递归或循环释放页表

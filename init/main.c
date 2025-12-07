@@ -180,6 +180,7 @@ static void init_syscall(void) {
     syscall[SYSCALL_MBOX_CLOSE] = (long (*)())do_mbox_close;
     syscall[SYSCALL_MBOX_SEND] = (long (*)())do_mbox_send;
     syscall[SYSCALL_MBOX_RECV] = (long (*)())do_mbox_recv;
+    syscall[SYSCALL_FREE_MEM] = (long (*)())get_free_memory;
     syscall[SYSCALL_TASKSET] = (long (*)())do_taskset;
     syscall[SYSCALL_THREAD_CREATE] = (long (*)())do_thread_create;
     syscall[SYSCALL_THREAD_EXIT] = (long (*)())do_thread_exit;
@@ -210,6 +211,7 @@ int main() {
         init_conditions(); // Init condition variable mechanism (•̀ω•́)✧
         init_semaphores(); // Init semaphore mechanism (ง •̀_•́)ง
         init_mbox();       // Init mailbox mechanism (づ｡◕‿‿◕｡)づ
+        init_swap();       // Init swap mechanism (◕‿◕✿)
         init_syscall();    // Init system call table (0_0)
         init_screen();     // Init screen (QAQ)
         printk("> [INIT] All global initializations done.\n");

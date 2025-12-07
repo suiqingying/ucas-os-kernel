@@ -231,4 +231,8 @@ void sys_thread_exit(void *retval) {
 int sys_thread_join(pid_t tid, void **retval) {
     return invoke_syscall(SYSCALL_THREAD_JOIN, (long)tid, (long)retval, IGNORE, IGNORE, IGNORE);
 }
+
+size_t sys_get_free_memory(void) {
+    return invoke_syscall(SYSCALL_FREE_MEM, IGNORE, IGNORE, IGNORE, IGNORE, IGNORE);
+}
 /************************************************************/

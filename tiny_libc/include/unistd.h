@@ -68,4 +68,7 @@ int sys_thread_create(void (*start_routine)(void *), void *arg);
 void sys_thread_exit(void *retval);
 int sys_thread_join(pid_t tid, void **retval);
 
+/* memory */
+size_t sys_get_free_memory(void);
+
 #endif
