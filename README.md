@@ -405,3 +405,86 @@ TL;DR：如果主核（Hart 0）在从核（Hart 1）还未完成启动前就取
 - 虚拟地址 (VA)：进程或内核使用的地址空间，是经过 MMU 映射后的地址。
 - 物理地址 (PA)：实际的物理内存地址，是硬件访问的地址。
 - 内核虚拟地址 (KVA)：内核空间使用的虚拟地址，通常映射到物理地址的高地址区域。
+
+## 十二 — P3 测试程序与 P4 虚拟内存的兼容性问题
+
+### 问题发现
+
+在使用 P3 的 `condition` 测试程序验证 P4 的虚拟内存实现时，发现 **consumer 进程永远阻塞**，无法消费 producer 生产的产品。
+
+### 问题分析
+
+**P3 测试程序的设计假设**：所有进程共享同一个物理地址空间。
+
+`condition.c` 测试程序使用固定地址 `0x56000000` 作为共享变量：
+```c
+#define RESOURCE_ADDR 0x56000000
+*(int *)RESOURCE_ADDR = 0;  // 主进程初始化
+```
+
+Producer 和 Consumer 子进程通过这个地址通信：
+- Producer: `(*num_staff) += production;`
+- Consumer: `while (*(num_staff) == 0) { sys_condition_wait(...); }`
+
+**P4 引入虚拟内存后的实际情况**：
+
+每个进程拥有独立的地址空间，相同的虚拟地址映射到**不同的物理页**：
+- `condition` 进程：`VA 0x56000000` → `PA A`
+- `producer` 进程：`VA 0x56000000` → `PA B`（缺页时新分配）
+- `consumer` 进程：`VA 0x56000000` → `PA C`（缺页时新分配）
+
+**结果**：Producer 在物理页 B 上写入数据，Consumer 在物理页 C 上读取数据。由于两者操作的是不同的物理内存，Consumer 永远看不到 Producer 的写入，导致永久阻塞。
+
+### 为什么 Barrier 测试程序没有问题？
+
+`barrier.c` 测试程序只传递整数句柄给子进程，**不依赖用户态共享内存**。所有同步状态保存在内核数据结构 `barrs[]` 中，通过系统调用访问，不受地址空间隔离影响。
+
+### 结论
+
+这不是内核实现的 Bug，而是 **P3 测试程序的设计与 P4 虚拟内存机制不兼容**。
+
+正确的进程间通信应该使用：
+1. **共享内存系统调用**（Task 4 的 `shm_page_get`）
+2. **管道或消息队列**
+3. **内核维护的同步原语**（如 barrier、semaphore）
+
+### 临时解决方案（已撤销）
+
+曾尝试在缺页处理中对 `0x50000000 - 0x60000000` 地址范围使用恒等映射，使所有进程共享同一物理页。但这只是权宜之计，不符合虚拟内存的设计原则，故已撤销。
+
+## 十三 — Task 2 关键 Bug 修复：进程切换时必须切换页表
+
+### 问题现象
+
+运行两个 `lock` 进程时，系统崩溃：
+```
+exception code: 2, Illegal instruction, epc 0, ra 0
+```
+
+### 问题根因
+
+在 `do_mutex_lock_acquire` 中，当进程因锁竞争失败而阻塞时，原代码**直接调用 `switch_to` 切换进程，但没有切换页表**：
+
+```c
+// 错误代码
+do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
+pcb_t *prior_running = current_running;
+current_running = get_pcb_from_node(seek_ready_node());
+switch_to(prior_running, current_running);  // ❌ 没有切换 satp！
+```
+
+**后果**：新进程使用旧进程的页表，虚拟地址映射到错误的物理地址，导致取指令失败。
+
+### 修复方案
+
+**所有进程切换必须通过 `do_scheduler()` 完成**，因为只有 `do_scheduler()` 会正确切换页表：
+
+```c
+// 正确代码
+do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
+do_scheduler();  // ✅ 自动处理页表切换
+```
+
+### 设计原则
+
+任何导致进程切换的操作（锁阻塞、信号量、条件变量、sleep 等）都必须调用 `do_scheduler()`，不能手动调用 `switch_to()`。

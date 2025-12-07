@@ -47,13 +47,10 @@ void do_scheduler(void) {
     current_running->status = TASK_RUNNING;
 
     // [重点] 切换用户页表
-    // 只有当即将运行的进程不是 pid0 (内核线程) 时才需要切换
-    // 但为了简化逻辑，pid0 也建立了页表，所以可以统一切换
     // 注意：必须使用物理地址写入 satp
     uintptr_t pgdir_pa = kva2pa(current_running->pgdir);
-    // 重新设置 satp 寄存器
-    set_satp(SATP_MODE_SV39, 0, pgdir_pa >> NORMAL_PAGE_SHIFT);
-    local_flush_icache_all();
+    // 重新设置 satp 寄存器（set_satp内部已经有sfence.vma）
+    set_satp(SATP_MODE_SV39, current_running->pid, pgdir_pa >> NORMAL_PAGE_SHIFT);
     switch_to(prior_running, current_running);
     return;
 }

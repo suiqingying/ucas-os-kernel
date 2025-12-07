@@ -53,12 +53,9 @@ void do_mutex_lock_acquire(int mlock_idx) {
         mlocks[mlock_idx].pid = current_running->pid;
         return;
     }
-    // 获取锁失败
+    // 获取锁失败，阻塞当前进程并调度
     do_block(&current_running->list, &mlocks[mlock_idx].block_queue);
-    pcb_t *prior_running = current_running;
-    current_running = get_pcb_from_node(seek_ready_node());
-    current_running->status = TASK_RUNNING;
-    switch_to(prior_running, current_running);
+    do_scheduler();
 }
 
 void do_mutex_lock_release(int mlock_idx) {
