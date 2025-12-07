@@ -6,6 +6,7 @@
 #include <os/time.h>
 #include <printk.h>
 #include <screen.h>
+#include <os/mm.h>
 #define SCAUSE_IRQ_MASK 0x8000000000000000
 
 handler_t irq_table[IRQC_COUNT];
@@ -27,6 +28,17 @@ void handle_irq_timer(regs_context_t *regs, uint64_t stval, uint64_t scause) {
     bios_set_timer(get_ticks() + TIMER_INTERVAL); // 下一次查询中断的时间
 
     do_scheduler();
+}
+
+void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause){
+    // 对齐到页边界
+    uintptr_t fault_va = stval & ~(PAGE_SIZE - 1);
+    
+    // 建立映射（alloc_page_helper会检查是否已存在）
+    alloc_page_helper(fault_va, current_running->pgdir);
+    
+    // 刷新TLB（只刷新这一页即可）
+    local_flush_tlb_page(fault_va);
 }
 
 void init_exception() {

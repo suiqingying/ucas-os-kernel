@@ -72,6 +72,9 @@ void share_pgtable(uintptr_t dest_pgdir, uintptr_t src_pgdir) {
 }
 
 uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir) {
+    // 确保地址对齐到页边界
+    va = va & ~(PAGE_SIZE - 1);
+    
     PTE *pgdir_kva = (PTE *)pgdir;
 
     // L2 (根页表) 的索引：取 va 的 [38:30] 位
@@ -108,6 +111,8 @@ uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir) {
 
     // 建立最终映射
     ptr_t final_page = allocPage(1);
+    // 清零新分配的页，防止访问到脏数据
+    memset((void *)final_page, 0, PAGE_SIZE);
     set_pfn(&pte[vpn0], kva2pa(final_page) >> NORMAL_PAGE_SHIFT);
     // [保持] 叶子节点：必须给足 V, R, W, X, U, A, D
     set_attribute(&pte[vpn0], _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE | _PAGE_EXEC | _PAGE_USER | _PAGE_ACCESSED | _PAGE_DIRTY);
