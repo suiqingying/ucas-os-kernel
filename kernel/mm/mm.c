@@ -355,3 +355,255 @@ uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir) {
 
 uintptr_t shm_page_get(int key) { return 0; }
 void shm_page_dt(uintptr_t addr) {}
+
+// Pipe management for Task 5
+static pipe_t pipes[MAX_PIPES];
+static int pipe_initialized = 0;
+
+// Simple free list for pipe_page_t structures
+static pipe_page_t *free_pipe_pages = NULL;
+
+// Initialize pipe system
+static void init_pipe_system() {
+    if (pipe_initialized) return;
+
+    for (int i = 0; i < MAX_PIPES; i++) {
+        pipes[i].name[0] = '\0';
+        pipes[i].ref_count = 0;
+        pipes[i].head = NULL;
+        pipes[i].tail = NULL;
+        pipes[i].total_pages = 0;
+        pipes[i].is_open = 0;
+    }
+    pipe_initialized = 1;
+    printk("> [PIPE] Pipe system initialized\n");
+}
+
+// Find pipe by name, returns -1 if not found
+static int find_pipe_by_name(const char *name) {
+    for (int i = 0; i < MAX_PIPES; i++) {
+        if (pipes[i].is_open && strcmp(pipes[i].name, name) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Find a free pipe slot, returns -1 if none available
+static int find_free_pipe_slot() {
+    for (int i = 0; i < MAX_PIPES; i++) {
+        if (!pipes[i].is_open) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Close a pipe (decrement reference count and cleanup if needed)
+void do_pipe_close(int pipe_idx) {
+    if (pipe_idx < 0 || pipe_idx >= MAX_PIPES || !pipes[pipe_idx].is_open) {
+        return;
+    }
+
+    pipes[pipe_idx].ref_count--;
+
+    // If no more references, clean up the pipe
+    if (pipes[pipe_idx].ref_count <= 0) {
+        // Free all pages in the pipe
+        pipe_page_t *page = pipes[pipe_idx].head;
+        while (page) {
+            pipe_page_t *next = page->next;
+
+            // Return page structure to free list
+            page->next = free_pipe_pages;
+            free_pipe_pages = page;
+
+            page = next;
+        }
+
+        // Mark pipe as closed
+        pipes[pipe_idx].is_open = 0;
+        pipes[pipe_idx].head = NULL;
+        pipes[pipe_idx].tail = NULL;
+        pipes[pipe_idx].total_pages = 0;
+        pipes[pipe_idx].ref_count = 0;
+    }
+}
+
+// Create or open a pipe
+int do_pipe_open(const char *name) {
+    if (!pipe_initialized) {
+        init_pipe_system();
+    }
+
+    if (!name || strlen(name) >= 31) {
+        return -1;  // Invalid name
+    }
+
+    // Check if current process has too many pipes open
+    if (current_running->num_open_pipes >= MAX_PROCESS_PIPES) {
+        return -1;  // Too many pipes open
+    }
+
+    // Check if pipe already exists
+    int idx = find_pipe_by_name(name);
+    if (idx >= 0) {
+        pipes[idx].ref_count++;
+
+        // Track this pipe in the current process
+        for (int i = 0; i < MAX_PROCESS_PIPES; i++) {
+            if (current_running->open_pipes[i] == -1) {
+                current_running->open_pipes[i] = idx;
+                current_running->num_open_pipes++;
+                break;
+            }
+        }
+
+        return idx;
+    }
+
+    // Create new pipe
+    idx = find_free_pipe_slot();
+    if (idx < 0) {
+        return -1;  // No free slots
+    }
+
+    strncpy(pipes[idx].name, name, 31);
+    pipes[idx].name[31] = '\0';
+    pipes[idx].ref_count = 1;
+    pipes[idx].head = NULL;
+    pipes[idx].tail = NULL;
+    pipes[idx].total_pages = 0;
+    pipes[idx].is_open = 1;
+
+    // Track this pipe in the current process
+    for (int i = 0; i < MAX_PROCESS_PIPES; i++) {
+        if (current_running->open_pipes[i] == -1) {
+            current_running->open_pipes[i] = idx;
+            current_running->num_open_pipes++;
+            break;
+        }
+    }
+
+    return idx;
+}
+
+// Give pages to pipe (zero-copy implementation)
+long do_pipe_give_pages(int pipe_idx, void *src, size_t length) {
+    if (pipe_idx < 0 || pipe_idx >= MAX_PIPES || !pipes[pipe_idx].is_open) {
+        return -1;
+    }
+
+    if (!src || length == 0) {
+        return -1;
+    }
+
+    // Calculate number of pages needed
+    int num_pages = (length + PAGE_SIZE - 1) / PAGE_SIZE;
+    uintptr_t src_va = (uintptr_t)src;
+
+    // For each page, create a pipe_page entry and remap
+    for (int i = 0; i < num_pages; i++) {
+        // Allocate or reuse pipe_page_t structure
+        pipe_page_t *page;
+        if (free_pipe_pages) {
+            page = free_pipe_pages;
+            free_pipe_pages = page->next;
+        } else {
+            page = (pipe_page_t *)kmalloc(sizeof(pipe_page_t));
+            if (!page) {
+                return -1;  // Out of memory
+            }
+        }
+
+        uintptr_t page_va = src_va + i * PAGE_SIZE;
+        size_t copy_len = (i == num_pages - 1) ? (length - i * PAGE_SIZE) : PAGE_SIZE;
+
+        // Get the physical page backing this virtual address
+        uintptr_t pte_ptr = get_pteptr_of(page_va, current_running->pgdir);
+        if (!pte_ptr) {
+            // Page not mapped, allocate it first
+            alloc_page_helper(page_va, current_running->pgdir);
+            pte_ptr = get_pteptr_of(page_va, current_running->pgdir);
+            if (!pte_ptr) {
+                return -1;
+            }
+        }
+
+        PTE *pte = (PTE *)pte_ptr;
+        uintptr_t pa = get_pa(*pte);
+
+        // Initialize pipe page structure
+        page->kva = (void *)pa2kva(pa);
+        page->pa = pa;
+        page->in_use = 1;
+        page->size = copy_len;
+        page->next = NULL;
+
+        // Add to pipe
+        if (pipes[pipe_idx].tail) {
+            pipes[pipe_idx].tail->next = page;
+        } else {
+            pipes[pipe_idx].head = page;
+        }
+        pipes[pipe_idx].tail = page;
+        pipes[pipe_idx].total_pages++;
+    }
+
+    return length;
+}
+
+// Take pages from pipe (zero-copy implementation)
+long do_pipe_take_pages(int pipe_idx, void *dst, size_t length) {
+    if (pipe_idx < 0 || pipe_idx >= MAX_PIPES || !pipes[pipe_idx].is_open) {
+        return -1;
+    }
+
+    if (!dst || length == 0) {
+        return -1;
+    }
+
+    if (!pipes[pipe_idx].head) {
+        return 0;  // No data available
+    }
+
+    uintptr_t dst_va = (uintptr_t)dst;
+    size_t total_copied = 0;
+
+    // Take pages from pipe and remap to receiver
+    while (pipes[pipe_idx].head && total_copied < length) {
+        pipe_page_t *page = pipes[pipe_idx].head;
+        pipes[pipe_idx].head = page->next;
+        if (!pipes[pipe_idx].head) {
+            pipes[pipe_idx].tail = NULL;
+        }
+        pipes[pipe_idx].total_pages--;
+
+        // Get the PTE for destination address
+        uintptr_t pte_ptr = get_pteptr_of(dst_va + total_copied, current_running->pgdir);
+        if (!pte_ptr) {
+            // Page not mapped, allocate it first
+            alloc_page_helper(dst_va + total_copied, current_running->pgdir);
+            pte_ptr = get_pteptr_of(dst_va + total_copied, current_running->pgdir);
+        }
+
+        if (pte_ptr) {
+            PTE *pte = (PTE *)pte_ptr;
+
+            // Remap the physical page to destination
+            set_pfn(pte, page->pa >> NORMAL_PAGE_SHIFT);
+            set_attribute(pte, _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE | _PAGE_USER | _PAGE_ACCESSED | _PAGE_DIRTY);
+
+            // Flush TLB for this page
+            local_flush_tlb_page(dst_va + total_copied);
+
+            total_copied += page->size;
+        }
+
+        // Return page structure to free list
+        page->next = free_pipe_pages;
+        free_pipe_pages = page;
+    }
+
+    return total_copied;
+}

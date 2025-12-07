@@ -33,6 +33,7 @@
 #include <os/list.h>
 
 #define NUM_MAX_TASK 16
+#define MAX_PROCESS_PIPES 8  // Maximum pipes a process can open
 extern int task_num;
 /* used to save register infomation */
 typedef struct regs_context
@@ -97,6 +98,10 @@ typedef struct pcb
 
     /* Thread return value (for join) */
     void *thread_ret;
+
+    /* Pipes opened by this process */
+    int open_pipes[MAX_PROCESS_PIPES];
+    int num_open_pipes;
 } pcb_t;
 
 /* ready queue to run */

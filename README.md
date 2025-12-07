@@ -873,3 +873,154 @@ Shell 中的 `free` 命令支持：
   - Swap 相关宏定义和函数声明
 
 ---
+
+## Task 5: 零拷贝IPC - 内存页管道
+
+### 一、功能概述
+
+实现了基于页面重映射的零拷贝进程间通信（IPC）机制。与传统IPC（通过内核缓冲区复制数据）不同，内存页管道直接将物理页面的所有权从一个进程转移到另一个进程，避免了数据复制，大大提高了大数据量传输的效率。
+
+### 二、核心设计与实现
+
+#### 1. 系统调用接口
+
+新增了三个系统调用：
+```c
+int sys_pipe_open(const char *name);           // 打开/创建命名管道
+long sys_pipe_give_pages(int pipe, void *addr, size_t len);  // 给出页面
+long sys_pipe_take_pages(int pipe, void *addr, size_t len);  // 获取页面
+```
+
+#### 2. 管道数据结构
+
+[`pipe_t`](include/os/mm.h:84) 结构定义：
+```c
+typedef struct pipe {
+    char name[32];               // 管道名称（用于命名管道）
+    int ref_count;               // 引用计数（多进程共享）
+    pipe_page_t *head;           // 页面链表头（FIFO）
+    pipe_page_t *tail;           // 页面链表尾
+    int total_pages;             // 当前管道中的页面数
+    int is_open;                 // 管道状态
+} pipe_t;
+```
+
+[`pipe_page_t`](include/os/mm.h:77) 页面描述符：
+```c
+typedef struct pipe_page {
+    void *kva;                   // 内核虚拟地址
+    uintptr_t pa;                // 物理地址
+    int in_use;                  // 使用标志
+    int size;                    // 数据大小（可能小于PAGE_SIZE）
+    struct pipe_page *next;      // 链表指针
+} pipe_page_t;
+```
+
+#### 3. 零拷贝传输机制
+
+**发送方（give_pages）**：
+1. 遍历要传输的页面，获取每个页面的物理地址
+2. 创建 `pipe_page_t` 结构描述物理页面
+3. 将页面描述符添加到管道的FIFO队列
+4. **关键**：物理页面保持在原进程的页表中，但标记为待传输
+
+**接收方（take_pages）**：
+1. 从管道头部取出页面描述符
+2. 修改接收进程页表，将虚拟地址映射到该物理页面
+3. 刷新TLB，确保新映射生效
+4. **关键**：直接重用物理页面，无需数据复制
+
+#### 4. 进程管道跟踪
+
+为了防止资源泄漏，每个进程维护一个打开的管道列表：
+- [`pcb_t.open_pipes[MAX_PROCESS_PIPES]`](include/os/sched.h:103)：存储打开的管道ID
+- [`pcb_t.num_open_pipes`](include/os/sched.h:104)：打开的管道数量
+- 进程退出时自动调用 [`do_pipe_close()`](kernel/mm/mm.c:381) 清理资源
+
+### 三、遇到的主要问题与解决方案
+
+| 问题现象 | 原因分析 | 解决方案 |
+|---------|---------|---------|
+| **多次运行后系统崩溃** | 进程退出时未关闭管道，导致管道资源泄漏 | 实现进程管道跟踪，在 `do_exit()` 中自动清理 |
+| **get_pteptr_of地址错误** | 错误的类型转换导致地址计算错误 | 修复类型转换：`(uintptr_t *)` → `PTE *` |
+| **管道程序死锁** | 接收方在发送方give之前take导致无限等待 | 修改管道返回0当无数据，而非阻塞等待 |
+| **内存显示223MB** | `get_free_memory()` 使用硬编码地址 | 改用 `TOTAL_PHYSICAL_PAGES` 计算 |
+| **编译错误** | `MAX_PROCESS_PIPES` 未定义 | 移到 `sched.h` 中定义 |
+
+### 四、性能分析
+
+#### 零拷贝优势
+1. **内存效率**：
+   - 传统IPC：数据复制两次（发送方→内核→接收方）
+   - 页面管道：仅修改页表映射，零数据拷贝
+   - 对于传输1页数据，节省8KB内存带宽
+
+2. **CPU节省**：
+   - 避免了 `memcpy` 操作
+   - 减少缓存污染
+   - CPU周期仅用于页表更新
+
+#### 适用场景
+- 大数据量传输（如视频流）
+- 高频IPC场景
+- 内存敏感型应用
+- 多媒体数据处理
+
+### 五、测试验证
+
+#### 1. 基础功能测试
+```bash
+> exec pipe_self            # 同进程内测试
+# 输出：pipe self: success, msg="hello-from-pipe-self"
+```
+
+#### 2. 跨进程通信测试
+```bash
+> exec pipe send &           # 后台启动发送进程
+> exec pipe recv             # 启动接收进程
+# 输出：成功传输页面数据
+```
+
+#### 3. 资源管理测试
+```bash
+> exec pipe                  # 第一次运行
+> exec pipe                  # 第二次运行
+> exec pipe                  # 第三次运行
+# 所有运行都应该成功，无资源泄漏
+```
+
+#### 4. 内存限制下的测试
+```bash
+> free -h                    # 查看内存（应显示2MB）
+> exec pipe                  # 在受限内存下测试
+> exec mem_stress2           # 同时触发swap
+# 验证管道与swap机制协同工作
+```
+
+### 六、关键代码位置
+
+- [`do_pipe_open()`](kernel/mm/mm.c:412)：管道打开/创建
+- [`do_pipe_give_pages()`](kernel/mm/mm.c:470)：页面给出实现
+- [`do_pipe_take_pages()`](kernel/mm/mm.c:535)：页面获取实现
+- [`do_pipe_close()`](kernel/mm/mm.c:381)：管道关闭和资源清理
+- [`get_pteptr_of()`](arch/riscv/include/pgtable.h:109)：获取页表项指针（已修复）
+
+### 七、系统配置
+
+当前系统配置：
+- **物理内存**：512页 = 2MB（便于测试swap）
+- **最大管道数**：32个
+- **每进程最大管道数**：8个
+- **Swap空间**：1024页（4MB）
+
+调整内存大小：
+```c
+// include/os/mm.h
+#define TOTAL_PHYSICAL_PAGES 512     // 2MB
+// 或：
+#define TOTAL_PHYSICAL_PAGES 2048    // 8MB
+// 或：
+#define TOTAL_PHYSICAL_PAGES 57344   // 224MB（原始大小）
+```
+
+---

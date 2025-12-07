@@ -45,7 +45,7 @@
 // Swap space configuration
 #define SWAP_START_SECTOR 0x200000  // Start sector for swap space on SD card
 #define MAX_SWAP_PAGES 1024         // Maximum pages that can be swapped
-#define TOTAL_PHYSICAL_PAGES 3584   // Total physical pages (14MB / 4KB)
+#define TOTAL_PHYSICAL_PAGES 512     // Total physical pages (2MB / 4KB) - reduced for swap testing
 
 extern ptr_t allocPage(int numPage);
 
@@ -69,5 +69,31 @@ extern size_t get_free_memory();
 // TODO [P4-task4]:shm_page_get/dt */
 uintptr_t shm_page_get(int key);
 void shm_page_dt(uintptr_t addr);
+
+// Memory page pipe structure for Task 5
+#define MAX_PIPES 32
+
+typedef struct pipe_page {
+    void *kva;                   // Kernel virtual address of the page
+    uintptr_t pa;                // Physical address of the page
+    int in_use;                  // Whether this page contains data
+    int size;                    // Size of data in the page
+    struct pipe_page *next;      // Next page in the pipe
+} pipe_page_t;
+
+typedef struct pipe {
+    char name[32];               // Pipe name
+    int ref_count;               // Number of processes using this pipe
+    pipe_page_t *head;           // Head of page list (oldest)
+    pipe_page_t *tail;           // Tail of page list (newest)
+    int total_pages;             // Total pages in pipe
+    int is_open;                 // Whether pipe is open
+} pipe_t;
+
+// Pipe management functions
+extern int do_pipe_open(const char *name);
+extern long do_pipe_give_pages(int pipe_idx, void *src, size_t length);
+extern long do_pipe_take_pages(int pipe_idx, void *dst, size_t length);
+extern void do_pipe_close(int pipe_idx);
 
 #endif /* MM_H */

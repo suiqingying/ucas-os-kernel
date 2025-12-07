@@ -265,6 +265,11 @@ pid_t do_exec(char *name, int argc, char *argv[]) {
     new_pcb->cursor_y = 0;
     new_pcb->mask = current_running->mask;
     new_pcb->thread_ret = NULL;
+    // 初始化管道数组
+    new_pcb->num_open_pipes = 0;
+    for (int i = 0; i < MAX_PROCESS_PIPES; i++) {
+        new_pcb->open_pipes[i] = -1;
+    }
     // 初始化链表
     init_list_head(&new_pcb->list);
     new_pcb->wait_list.prev = new_pcb->wait_list.next = &new_pcb->wait_list;
@@ -307,6 +312,11 @@ pid_t do_thread_create(ptr_t entry_point, ptr_t arg) {
     init_list_head(&new_pcb->list);
     new_pcb->mask = current_running->mask;
     new_pcb->thread_ret = NULL;
+    // 初始化管道数组
+    new_pcb->num_open_pipes = 0;
+    for (int i = 0; i < MAX_PROCESS_PIPES; i++) {
+        new_pcb->open_pipes[i] = -1;
+    }
 
     init_thread_stack(new_pcb->kernel_sp, new_pcb->user_sp, entry_point, new_pcb, arg);
     add_node_to_q(&new_pcb->list, &ready_queue);
@@ -348,7 +358,18 @@ int do_thread_join(pid_t tid, ptr_t retval_ptr) {
 }
 
 void do_exit(void) {
-    current_running->status = TASK_EXITED; // 1. 设置状态// 
+    current_running->status = TASK_EXITED; // 1. 设置状态
+
+    // Close all pipes this process opened
+    for (int i = 0; i < current_running->num_open_pipes; i++) {
+        int pipe_idx = current_running->open_pipes[i];
+        if (pipe_idx >= 0) {
+            do_pipe_close(pipe_idx);
+            current_running->open_pipes[i] = -1;
+        }
+    }
+    current_running->num_open_pipes = 0;
+
     pcb_release(current_running); // 2. 释放资源 (页表、物理页、内核栈、锁等)
     do_scheduler(); // 3. 调度
 }
