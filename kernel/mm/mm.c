@@ -109,7 +109,8 @@ int swap_out_page() {
                     
                     // Free the physical page
                     freePage(kva);
-                    total_allocated_pages--;
+                    // 不减少total_allocated_pages，因为freePage已经处理了
+                    // total_allocated_pages保持不变（页面只是移到空闲链表）
                     
                     // Mark frame as free
                     victim->swap_idx = swap_idx;
@@ -179,29 +180,46 @@ void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
 
 ptr_t allocPage(int numPage)
 {
-    // Try to allocate from free list first
+    // Always try to allocate from free list first for single pages
     if (free_list_head != 0 && numPage == 1) {
         ptr_t ret = free_list_head;
         free_list_head = *(ptr_t *)free_list_head;
         memset((void *)ret, 0, PAGE_SIZE);
         return ret;
     }
-    
-    // Check if we need to swap
-    if (swap_enabled && total_allocated_pages >= TOTAL_PHYSICAL_PAGES - 100) {
-        // Try to swap out a page
-        swap_out_page();
+
+    // Check if we have enough physical pages
+    if (total_allocated_pages + numPage > TOTAL_PHYSICAL_PAGES) {
+        if (swap_enabled) {
+            // Try to swap out pages
+            while (total_allocated_pages + numPage > TOTAL_PHYSICAL_PAGES - 10) {
+                if (!swap_out_page()) {
+                    break;  // Can't swap more
+                }
+
+                // After swap_out, try to use freed page from free list
+                if (free_list_head != 0 && numPage == 1) {
+                    ptr_t ret = free_list_head;
+                    free_list_head = *(ptr_t *)free_list_head;
+                    memset((void *)ret, 0, PAGE_SIZE);
+                    return ret;
+                }
+            }
+        }
+
+        // Still not enough memory
+        if (total_allocated_pages + numPage > TOTAL_PHYSICAL_PAGES) {
+            return 0;  // Allocation failed
+        }
     }
-    
-    // Allocate from kernel memory
+
+    // Allocate from kernel memory (only when free list is empty)
     ptr_t ret = ROUND(kernMemCurr, PAGE_SIZE);
     kernMemCurr = ret + numPage * PAGE_SIZE;
-    
+
     // Track allocation
-    if (numPage == 1) {
-        total_allocated_pages++;
-    }
-    
+    total_allocated_pages += numPage;
+
     return ret;
 }
 
@@ -209,29 +227,33 @@ void freePage(ptr_t baseAddr) {
     // 将释放的页插入空闲链表头部
     *(ptr_t *)baseAddr = free_list_head;
     free_list_head = baseAddr;
-    
-    if (total_allocated_pages > 0) {
-        total_allocated_pages--;
-    }
+
+    // 注意：不减total_allocated_pages
+    // 因为页面仍然被分配（只是在空闲链表中）
+    // total_allocated_pages代表已分配的总页面数，包括空闲和使用的
 }
 
 // Get free memory in bytes
 size_t get_free_memory() {
-    // Calculate free memory from free list
-    int free_pages = 0;
+    // Count free pages from free list
+    int free_pages_count = 0;
     ptr_t p = free_list_head;
-    while (p != 0 && free_pages < 10000) {  // Prevent infinite loop
-        free_pages++;
+    while (p != 0 && free_pages_count < TOTAL_PHYSICAL_PAGES) {
+        free_pages_count++;
         p = *(ptr_t *)p;
     }
-    
+
     // Add unallocated memory
-    ptr_t mem_end = 0xffffffc060000000;  // End of physical memory
+    size_t unallocated_pages = 0;
+    ptr_t mem_end = 0xffffffc060000000;  // End of physical memory (approximate)
     if (kernMemCurr < mem_end) {
-        free_pages += (mem_end - kernMemCurr) / PAGE_SIZE;
+        unallocated_pages = (mem_end - kernMemCurr) / PAGE_SIZE;
     }
-    
-    return free_pages * PAGE_SIZE;
+
+    // Total free = pages in free list + unallocated pages
+    size_t total_free_pages = free_pages_count + unallocated_pages;
+
+    return total_free_pages * PAGE_SIZE;
 }
 
 // 递归或循环释放页表
