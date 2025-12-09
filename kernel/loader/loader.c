@@ -6,8 +6,6 @@
 #include <printk.h>
 #include <type.h>
 
-#define USER_ENTRY_POINT 0x10000
-
 uint64_t load_task_img(char *task_name, uintptr_t pgdir) {
     int i;
     for (i = 0; i < TASK_MAXNUM; i++) {

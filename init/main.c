@@ -214,9 +214,9 @@ int main() {
         init_conditions(); // Init condition variable mechanism (•̀ω•́)✧
         init_semaphores(); // Init semaphore mechanism (ง •̀_•́)ง
         init_mbox();       // Init mailbox mechanism (づ｡◕‿‿◕｡)づ
-        init_swap();       // Init swap mechanism (◕‿◕✿)
         init_syscall();    // Init system call table (0_0)
         init_screen();     // Init screen (QAQ)
+        init_swap();       // Init swap mechanism (◕‿◕✿)
         printk("> [INIT] All global initializations done.\n");
         printk("> [INIT] CPU time_base: %lu Hz\n", time_base);
 

@@ -40,8 +40,8 @@ void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause){
         PTE *pte = (PTE *)pte_ptr;
         // Check if page is in swap (SOFT bit set, PRESENT bit clear)
         if ((*pte & _PAGE_SOFT) && !(*pte & _PAGE_PRESENT)) {
-            // Extract swap index from PTE
-            int swap_idx = (*pte >> _PAGE_PFN_SHIFT) & 0x3FF;  // Lower 10 bits
+            // Extract swap index from PFN field (no truncation)
+            int swap_idx = (int)get_pfn(*pte);
             swap_in_page(fault_va, current_running->pgdir, swap_idx);
             local_flush_tlb_page(fault_va);
             return;

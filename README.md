@@ -1116,3 +1116,17 @@ while (total_allocated_pages + numPage > TOTAL_PHYSICAL_PAGES - 10) {
 
 
 ---
+
+## 9. 最近 Bug 修复清单
+
+| 现象 | 根本原因 | 修复方案 | 关键代码 |
+|------|----------|----------|----------|
+| `pipe recv` 随机 `data mismatch`，多次运行后内存无法回收 | 管道把 `pipe_page_t` 当成整页分配且不回收，发送方 PTE 仍指向旧页，进程退出时 `free_pgtable_pages()` 会重复释放 | 1) 建立 `alloc_pipe_page_struct()` slab，2) `do_pipe_give_pages()` 在登记后清空发送方 PTE 并刷新 TLB，3) `do_pipe_close()`/`do_pipe_take_pages()` 把残留物理页与元数据全部 `freePage()` 回收 | `kernel/mm/mm.c:530-806` |
+| `pipe recv` 在空管道时忙等甚至卡死 | 读端拿到空队列直接返回 0，写端没有唤醒逻辑，关闭也不清理阻塞队列 | 管道结构新增 `reader_queue`，`do_pipe_take_pages()` 空队列时阻塞，`do_pipe_give_pages()`/`do_pipe_close()` 通过 `free_block_list()` 唤醒；关闭管道时重置等待队列 | `include/os/mm.h:81-103`, `kernel/mm/mm.c:559-683` |
+| `free`/`free -h` 显示的空闲内存持续下降甚至大于总量 | 管道元数据永远占用 4KB 页、残页不归还，`get_free_memory()` 还依赖写死的 `mem_end` | 元数据集中分配、消费后归还，并在 `do_pipe_close()` 释放残页；`get_free_memory()` 改成“空闲链表 + 未分配页”计算，依赖 `TOTAL_PHYSICAL_PAGES` | `kernel/mm/mm.c:360-624` |
+| `mailbox send warmup failed (-1)` / 大包卡死 | `MAX_MBOX_LENGTH=64` 字节，拷贝逻辑一次性搬完；`map_user_page()` 不识别 `_PAGE_SOFT`，页在 swap 就直接报错 | 1) 把缓冲区扩到 8KB 并实现分段拷贝/阻塞唤醒，2) `map_user_page()` 检测 `_PAGE_SOFT` 时主动 `swap_in_page()`，保障大包流式传输 | `include/os/lock.h:110`, `kernel/locking/lock.c:271-420` |
+| `mailbox` 复用旧名字后自带垃圾数据 | `do_mbox_open()` 只设置 `name`，没有重置 `wcur/rcur` 和缓冲区 | 初始化时清零缓冲区与 wait 队列，打开新 mbox 时显式重置读写游标并 `memset` | `kernel/locking/lock.c:271-320` |
+| 缺页换回后仍崩溃或 swap 索引被截断 | 在缺页处理中从 PTE 取 swap_idx 只保留低 10 位，32MB 以上 swap 区直接读取错误位置 | 使用 `get_pfn(*pte)` 获取完整 PFN 作为 swap 索引，匹配 `swap_out_page()` 的写法 | `kernel/irq/irq.c:40-47` |
+| 运行 `ipc` 时出现 `blocks write error!`，swap 永远失败 | SD 镜像中根本没预留 0x200000 之后的扇区，内核写 swap 区时报错 | `createimage` 生成镜像时强制在尾部 padding 出 `[SWAP_START_SECTOR, SWAP_START_SECTOR + MAX_SWAP_PAGES*8)` 区域 | `tools/createimage.c:17-335` |
+| 进程退出后内存泄漏、`free -h` 永远为 0 | `pcb_release()` 注释掉了 `free_pgtable_pages()`，导致页表/用户页不回收 | 恢复 `pcb_release()` 中的 `free_pgtable_pages()` 调用并把 `pgdir` 清零 | `kernel/sched/sched.c:171-178`, `kernel/mm/mm.c:414-447` |
+| `free` 统计和 swap 压力检测完全依赖 `total_allocated_pages`，在缩小物理内存实验时得出“内存已满”错觉 | `allocPage()` 只看累计分配数，不关心真正还在使用的物理页，swap 永远触发/或永远不触发 | 引入 `used_physical_pages` 计数；内存压力、`free` 统计都基于“在用 + 空闲 + 未分配”真实页数，日志中可见具体值 | `kernel/mm/mm.c:11-411` |

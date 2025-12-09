@@ -28,6 +28,7 @@
 
 #include <pgtable.h>
 #include <type.h>
+#include <os/list.h>
 
 #define MAP_KERNEL 1
 #define MAP_USER 2
@@ -37,6 +38,10 @@
 #define INIT_USER_STACK 0xffffffc052500000
 #define FREEMEM_KERNEL (INIT_KERNEL_STACK + 2 * PAGE_SIZE)
 #define FREEMEM_USER INIT_USER_STACK
+#define USER_ENTRY_POINT 0x10000
+#define USER_CODE_GUARD_SIZE (1lu << 20)       // 1MB guard for code/rodata
+#define USER_LOW_SWAP_START (USER_ENTRY_POINT + USER_CODE_GUARD_SIZE)
+#define USER_SWAP_PREF_START (1lu << 30)
 
 /* Rounding; only works for n = power of two */
 #define ROUND(a, n) (((((uint64_t)(a)) + (n) - 1)) & ~((n) - 1))
@@ -44,8 +49,8 @@
 
 // Swap space configuration
 #define SWAP_START_SECTOR 0x200000  // Start sector for swap space on SD card
-#define MAX_SWAP_PAGES 8192         // Maximum pages that can be swapped (32MB)
-#define TOTAL_PHYSICAL_PAGES 512     // Total physical pages (2MB / 4KB) - reduced for swap testing
+#define MAX_SWAP_PAGES 131072       // Maximum pages that can be swapped (512MB)
+#define TOTAL_PHYSICAL_PAGES 1000  // Total physical pages (224MB) - restored to original size
 
 extern ptr_t allocPage(int numPage);
 
@@ -88,6 +93,7 @@ typedef struct pipe {
     pipe_page_t *tail;           // Tail of page list (newest)
     int total_pages;             // Total pages in pipe
     int is_open;                 // Whether pipe is open
+    list_head reader_queue;      // Processes waiting for data
 } pipe_t;
 
 // Pipe management functions

@@ -4,6 +4,10 @@
 #include <os/sched.h>
 #include <os/string.h>
 #include <printk.h>
+#include <pgtable.h>
+#include <os/mm.h>
+
+#define PAGE_SIZE 4096
 mutex_lock_t mlocks[LOCK_NUM];
 int lock_used_num = 0;
 
@@ -272,6 +276,8 @@ void init_mbox() {
         mbox[i].user_num = 0;
         mbox[i].wait_mbox_full.prev = mbox[i].wait_mbox_full.next = &mbox[i].wait_mbox_full;
         mbox[i].wait_mbox_empty.prev = mbox[i].wait_mbox_empty.next = &mbox[i].wait_mbox_empty;
+        // Clear the message buffer
+        memset(mbox[i].msg, 0, MAX_MBOX_LENGTH + 1);
     }
 }
 
@@ -287,12 +293,21 @@ int do_mbox_open(char *name) {
     for (int i = 0; i < MBOX_NUM; i++) {
         if (mbox[i].name[0] == '\0') {
             strcpy(mbox[i].name, name);
-            mbox[i].user_num++;
+            // Initialize the new mailbox
+            mbox[i].wcur = 0;
+            mbox[i].rcur = 0;
+            mbox[i].user_num = 1;  
+            // Clear the message buffer for the new mailbox
+            memset(mbox[i].msg, 0, MAX_MBOX_LENGTH + 1);
+            // Reinitialize wait queues to be safe
+            mbox[i].wait_mbox_full.prev = mbox[i].wait_mbox_full.next = &mbox[i].wait_mbox_full;
+            mbox[i].wait_mbox_empty.prev = mbox[i].wait_mbox_empty.next = &mbox[i].wait_mbox_empty;
             return i;
         }
     }
     return -1;
 }
+
 
 void do_mbox_close(int mbox_idx) {
     mbox[mbox_idx].user_num--;
@@ -303,84 +318,191 @@ void do_mbox_close(int mbox_idx) {
     }
 }
 
-static void circular_buffer_copy(char *dest, const char *src, uint32_t base_cur, int len, int buffer_size, copy_mode_t mode) {
-    uint32_t physical_idx; // 使用无符号数计算物理下标
-    // 这里可以拆分成两次 memcpy，但为了可读性，循环足矣
-    if (mode == COPY_TO_MBOX) {
-        // 写操作: src 是线性的 (用户数据), dest 是环形的 (邮箱 buffer)
-        for (int i = 0; i < len; i++) {
-            physical_idx = (base_cur + i) % buffer_size;
-            dest[physical_idx] = src[i];
+static int map_user_page(uintptr_t user_va, int write, char **page_kva) {
+    uintptr_t aligned = ROUNDDOWN(user_va, PAGE_SIZE);
+
+    while (1) {
+        uintptr_t pte_ptr = get_pteptr_of(aligned, current_running->pgdir);
+        if (!pte_ptr) {
+            if (!write) {
+                return -1;
+            }
+            if (!alloc_page_helper(aligned, current_running->pgdir)) {
+                return -1;
+            }
+            continue;
         }
-    } else {
-        // 读操作: src 是环形的 (邮箱 buffer), dest 是线性的 (用户 buffer)
-        for (int i = 0; i < len; i++) {
-            physical_idx = (base_cur + i) % buffer_size;
-            dest[i] = src[physical_idx];
+
+        PTE *pte = (PTE *)pte_ptr;
+        if (*pte & _PAGE_PRESENT) {
+            *page_kva = (char *)pa2kva(get_pa(*pte));
+            return 0;
+        }
+
+        if (*pte & _PAGE_SOFT) {
+            int swap_idx = (int)get_pfn(*pte);
+            swap_in_page(aligned, current_running->pgdir, swap_idx);
+            continue;
+        }
+
+        if (!write) {
+            return -1;
+        }
+
+        if (!alloc_page_helper(aligned, current_running->pgdir)) {
+            return -1;
         }
     }
 }
 
-int do_mbox_send(int mbox_idx, void *msg, int msg_length) {
-    // 1. 使用指针别名，减少代码噪音
-    mailbox_t *mb = &mbox[mbox_idx];
-    int block_count = 0;
+static int copy_from_user_safe(void *dst, uintptr_t user_src, uint32_t len) {
+    char *d = (char *)dst;
+    while (len > 0) {
+        char *page_kva;
+        if (map_user_page(user_src, 0, &page_kva) != 0) {
+            return -1;
+        }
+        uint32_t offset = user_src & (PAGE_SIZE - 1);
+        uint32_t chunk = PAGE_SIZE - offset;
+        if (chunk > len) {
+            chunk = len;
+        }
+        memcpy(d, page_kva + offset, chunk);
+        d += chunk;
+        user_src += chunk;
+        len -= chunk;
+    }
+    return 0;
+}
 
-    // 2. 利用无符号减法计算当前已用空间
-    // 无论 wcur 是否溢出回绕，(wcur - rcur) 永远等于缓冲区内的数据量
-    while (1) {
+static int copy_to_user_safe(uintptr_t user_dst, const void *src, uint32_t len) {
+    const char *s = (const char *)src;
+    while (len > 0) {
+        char *page_kva;
+        if (map_user_page(user_dst, 1, &page_kva) != 0) {
+            return -1;
+        }
+        uint32_t offset = user_dst & (PAGE_SIZE - 1);
+        uint32_t chunk = PAGE_SIZE - offset;
+        if (chunk > len) {
+            chunk = len;
+        }
+        memcpy(page_kva + offset, s, chunk);
+        s += chunk;
+        user_dst += chunk;
+        len -= chunk;
+    }
+    return 0;
+}
+
+int do_mbox_send(int mbox_idx, void *msg, int msg_length) {
+    mailbox_t *mb = &mbox[mbox_idx];
+    uint32_t total_sent = 0;
+    char *user_ptr = (char *)msg;
+
+    // printk("[MBOX] send start idx=%d len=%d\n", mbox_idx, msg_length);
+
+    while (total_sent < (uint32_t)msg_length) {
         uint32_t bytes_used = mb->wcur - mb->rcur;
         uint32_t bytes_free = MAX_MBOX_LENGTH - bytes_used;
 
-        // 如果剩余空间足够，跳出等待
-        if (bytes_free >= msg_length) {
-            break;
+        while (bytes_free == 0) {
+            do_block(&current_running->list, &mb->wait_mbox_full);
+            do_scheduler();
+            bytes_used = mb->wcur - mb->rcur;
+            bytes_free = MAX_MBOX_LENGTH - bytes_used;
         }
 
-        // 空间不足，阻塞
-        do_block(&current_running->list, &mb->wait_mbox_full);
-        do_scheduler();
-        block_count++;
+        uint32_t to_send = msg_length - total_sent;
+        if (to_send > bytes_free) {
+            to_send = bytes_free;
+        }
+
+        uint32_t ring_pos = mb->wcur % MAX_MBOX_LENGTH;
+        uint32_t first = to_send;
+        uint32_t chunk_to_end = MAX_MBOX_LENGTH - ring_pos;
+        if (first > chunk_to_end) {
+            first = chunk_to_end;
+        }
+
+        if (copy_from_user_safe(mb->msg + ring_pos,
+                                 (uintptr_t)user_ptr + total_sent,
+                                 first) != 0) {
+            // printk("[MBOX] ERROR: send copy failed (idx=%d)\n", mbox_idx);
+            return -1;
+        }
+
+        uint32_t remaining = to_send - first;
+        if (remaining > 0) {
+            if (copy_from_user_safe(mb->msg,
+                                     (uintptr_t)user_ptr + total_sent + first,
+                                     remaining) != 0) {
+                // printk("[MBOX] ERROR: send copy failed (wrap idx=%d)\n", mbox_idx);
+                return -1;
+            }
+        }
+
+        mb->wcur += to_send;
+        total_sent += to_send;
+
+        free_block_list(&mb->wait_mbox_empty);
     }
-    // 3. 执行拷贝
-    circular_buffer_copy(mb->msg, (const char *)msg, mb->wcur, msg_length, MAX_MBOX_LENGTH, COPY_TO_MBOX);
 
-    // 4. 更新游标
-    mb->wcur += msg_length; // 无符号加法，自动处理溢出回绕
-
-    // 5. 唤醒等待数据的进程
-    free_block_list(&mb->wait_mbox_empty);
-
-    return block_count;
+    // printk("[MBOX] send done idx=%d len=%d total=%u\n", mbox_idx, msg_length, total_sent);
+    return (int)total_sent;
 }
 
 int do_mbox_recv(int mbox_idx, void *msg, int msg_length) {
     mailbox_t *mb = &mbox[mbox_idx];
-    int block_count = 0;
+    uint32_t total_recv = 0;
+    char *user_ptr = (char *)msg;
 
-    while (1) {
-        // 计算当前缓冲区内有多少数据可读
+    // printk("[MBOX] recv start idx=%d len=%d\n", mbox_idx, msg_length);
+
+    while (total_recv < (uint32_t)msg_length) {
         uint32_t bytes_available = mb->wcur - mb->rcur;
 
-        // 如果数据量足够，跳出等待
-        if (bytes_available >= msg_length) {
-            break;
+        while (bytes_available == 0) {
+            do_block(&current_running->list, &mb->wait_mbox_empty);
+            do_scheduler();
+            bytes_available = mb->wcur - mb->rcur;
         }
 
-        // 数据不足，阻塞
-        do_block(&current_running->list, &mb->wait_mbox_empty);
-        do_scheduler();
-        block_count++;
+        uint32_t to_recv = msg_length - total_recv;
+        if (to_recv > bytes_available) {
+            to_recv = bytes_available;
+        }
+
+        uint32_t ring_pos = mb->rcur % MAX_MBOX_LENGTH;
+        uint32_t first = to_recv;
+        uint32_t chunk_to_end = MAX_MBOX_LENGTH - ring_pos;
+        if (first > chunk_to_end) {
+            first = chunk_to_end;
+        }
+
+        if (copy_to_user_safe((uintptr_t)user_ptr + total_recv,
+                               mb->msg + ring_pos,
+                               first) != 0) {
+            // printk("[MBOX] ERROR: recv copy failed (idx=%d)\n", mbox_idx);
+            return -1;
+        }
+
+        uint32_t remaining = to_recv - first;
+        if (remaining > 0) {
+            if (copy_to_user_safe((uintptr_t)user_ptr + total_recv + first,
+                                   mb->msg,
+                                   remaining) != 0) {
+                // printk("[MBOX] ERROR: recv copy failed (wrap idx=%d)\n", mbox_idx);
+                return -1;
+            }
+        }
+
+        mb->rcur += to_recv;
+        total_recv += to_recv;
+
+        free_block_list(&mb->wait_mbox_full);
     }
 
-    // 执行拷贝
-    circular_buffer_copy((char *)msg, mb->msg, mb->rcur, msg_length, MAX_MBOX_LENGTH, COPY_FROM_MBOX);
-
-    // 更新游标 (注意：这里不需要取模，让它一直增加即可)
-    mb->rcur += msg_length;
-
-    // 唤醒等待空间的发送进程
-    free_block_list(&mb->wait_mbox_full);
-    
-    return block_count;
+    // printk("[MBOX] recv done idx=%d len=%d total=%u\n", mbox_idx, msg_length, total_recv);
+    return (int)total_recv;
 }

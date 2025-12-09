@@ -17,6 +17,11 @@
 #define BOOT_LOADER_SIG_1 0x55
 #define BOOT_LOADER_SIG_2 0xaa
 
+// Keep these values synchronized with include/os/mm.h
+#define SWAP_START_SECTOR 0x200000
+#define MAX_SWAP_PAGES 131072
+#define SWAP_SECTORS_PER_PAGE 8
+
 #define NBYTES2SEC(nbytes) (((nbytes) / SECTOR_SIZE) + ((nbytes) % SECTOR_SIZE != 0))
 
 /* design your own task_info_t */
@@ -49,6 +54,7 @@ static void write_segment(Elf64_Phdr phdr, FILE *fp, FILE *img, int *phyaddr);
 static void write_padding(FILE *img, int *phyaddr, int new_phyaddr);
 static void write_img_info(int nbytes_kernel, task_info_t *taskinfo,
                            short tasknum, FILE *img, int *taskinfo_addr);
+static void reserve_swap_space(FILE *img, int *phyaddr);
 
 int main(int argc, char **argv)
 {
@@ -176,6 +182,9 @@ static void create_image(int nfiles, char *files[])
     int batch_sector = NBYTES2SEC(phyaddr); /* batch will live at this sector */
     write_padding(img, &phyaddr, (batch_sector + 1) * SECTOR_SIZE);
     printf("Reserved one sector for batch file at sector %d, current phyaddr:%x\n", batch_sector, phyaddr);
+
+    /* finally ensure swap region exists inside the SD image */
+    reserve_swap_space(img, &phyaddr);
     fclose(img);
 }
 
@@ -281,6 +290,37 @@ static void write_img_info(int nbytes_kernel, task_info_t *taskinfo,
     fwrite(taskinfo, sizeof(task_info_t), tasknum, img);
     printf("Task info written at: %x\n", *taskinfo_addr);
     *taskinfo_addr += info_size;
+}
+
+static void reserve_swap_space(FILE *img, int *phyaddr)
+{
+    long long swap_start = (long long)SWAP_START_SECTOR * SECTOR_SIZE;
+    long long swap_end =
+        swap_start + (long long)MAX_SWAP_PAGES * SWAP_SECTORS_PER_PAGE * SECTOR_SIZE;
+    int swap_start_sector = SWAP_START_SECTOR;
+    int swap_end_sector = SWAP_START_SECTOR + MAX_SWAP_PAGES * SWAP_SECTORS_PER_PAGE;
+
+    if (*phyaddr > swap_start) {
+        fprintf(stderr,
+                "Warning: image payload (0x%x) already exceeds swap start (0x%llx)\n",
+                *phyaddr, swap_start);
+    }
+
+    if (*phyaddr < swap_start) {
+        if (options.extended) {
+            printf("Padding image to swap start sector 0x%x (%lld bytes)\n",
+                   swap_start_sector, swap_start);
+        }
+        fseek(img, swap_start - 1, SEEK_SET);
+        fputc(0, img);
+    }
+
+    fseek(img, swap_end - 1, SEEK_SET);
+    fputc(0, img);
+    *phyaddr = (int)swap_end;
+    printf("Reserved swap space: sectors [0x%x, 0x%x), size=%lld bytes (~%lld MB)\n",
+           swap_start_sector, swap_end_sector,
+           swap_end - swap_start, (swap_end - swap_start) / (1024 * 1024));
 }
 
 /* print an error message and exit */

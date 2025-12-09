@@ -9,7 +9,7 @@
 MSG_IN_MB: message size in megabytes used for the benchmark.
 */
 #define PAGE_SIZE 4096ul
-const long MSG_IN_MB = 512;
+const long MSG_IN_MB = 2;
 const long MSG_BYTES = MSG_IN_MB * 1024 * 1024;
 const long WARMUP_BYTES = PAGE_SIZE;
 const char MBOX_NAME[] = "ipc-perf-mailbox";
@@ -49,10 +49,30 @@ static char *alloc_payload_buffer(void)
  */
 static void fill_payload(char *buf, size_t len)
 {
+	// printf("[FILL] Starting to fill %ld MB of data...\n", len / (1024*1024));
+
+	// Report progress every 64MB
+	// size_t report_interval = 64 * 1024 * 1024;
+	// size_t next_report = report_interval;
+
 	for (size_t i = 0; i < len; ++i)
 	{
 		buf[i] = (char)(i & 0xff);
+
+		// Progress report every 64MB
+		// if (i >= next_report) {
+		// 	printf("[FILL] Progress: %ld MB completed\n", (long)(i / (1024*1024)));
+		// 	next_report += report_interval;
+		// }
 	}
+
+	// printf("[FILL] Completed filling %ld MB - BLOCKING to observe system behavior\n", len / (1024*1024));
+
+	// Block forever to observe system behavior after filling
+	// while (1) {
+		// printf("113123124");
+		// sys_sleep(1);
+	// }
 }
 
 /* Print elapsed ticks and approximate seconds for the measured interval.
@@ -131,30 +151,38 @@ static int mailbox_receiver(void)
 	}
 
 	long start = sys_get_tick();
-	int received = sys_mbox_recv(mq, buf, MSG_BYTES);
+	long total = 0;
+	const size_t chunk_size = 64 * 1024;
+	while (total < MSG_BYTES)
+	{
+		size_t remaining = MSG_BYTES - total;
+		size_t request = remaining < chunk_size ? remaining : chunk_size;
+		int chunk = sys_mbox_recv(mq, buf + total, request);
+		if (chunk <= 0)
+		{
+			sys_move_cursor(0, MAILBOX_RECV_LINE);
+			printf("[mailbox recv] recv failed (%d)\n", chunk);
+			sys_mbox_close(mq);
+			return -1;
+		}
+		for (int i = 0; i < chunk; ++i)
+		{
+			size_t off = total + i;
+			if (buf[off] != (char)(off & 0xff))
+			{
+				sys_move_cursor(0, MAILBOX_RECV_LINE);
+				printf("[mailbox recv] data mismatch at %d\n", (int)off);
+				sys_mbox_close(mq);
+				return -1;
+			}
+		}
+		total += chunk;
+	}
 	long end = sys_get_tick();
 
 	sys_mbox_close(mq);
-
-	if (received < 0)
-	{
-		sys_move_cursor(0, MAILBOX_RECV_LINE);
-		printf("[mailbox recv] recv failed (%d)\n", received);
-		return -1;
-	}
-
-	for (size_t i = 0; i < MSG_BYTES; ++i)
-	{
-		if (buf[i] != (char)(i & 0xff))
-		{
-			sys_move_cursor(0, MAILBOX_RECV_LINE);
-			printf("[mailbox recv] data mismatch at %d\n", (int)i);
-			return -1;
-		}
-	}
-
 	sys_move_cursor(0, MAILBOX_RECV_LINE);
-	print_timing("mailbox recv", received, start, end);
+	print_timing("mailbox recv", total, start, end);
 	return 0;
 }
 

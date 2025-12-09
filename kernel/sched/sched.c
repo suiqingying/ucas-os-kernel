@@ -171,9 +171,10 @@ void pcb_release(pcb_t *p) {
 
     free_block_list(&(p->wait_list));
     release_all_lock(p->pid);
-//     if (p->pgdir) {
-//         free_pgtable_pages(p->pgdir);
-//     }
+    if (p->pgdir) {
+        free_pgtable_pages(p->pgdir);
+        p->pgdir = 0;
+    }
 }
 
 int task_num = 0;
