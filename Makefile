@@ -9,7 +9,7 @@ PROJECT_IDX	= 4
 # -----------------------------------------------------------------------
 
 SHELL       = /bin/sh
-DISK        = /dev/sda
+DISK        = /dev/sdb
 TTYUSB1     = /dev/ttyUSB1
 DIR_OSLAB   = $(HOME)/OSLab-RISC-V
 DIR_QEMU    = $(DIR_OSLAB)/qemu

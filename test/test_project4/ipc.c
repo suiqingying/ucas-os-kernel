@@ -9,7 +9,7 @@
 MSG_IN_MB: message size in megabytes used for the benchmark.
 */
 #define PAGE_SIZE 4096ul
-const long MSG_IN_MB = 2;
+const long MSG_IN_MB = 5;
 const long MSG_BYTES = MSG_IN_MB * 1024 * 1024;
 const long WARMUP_BYTES = PAGE_SIZE;
 const char MBOX_NAME[] = "ipc-perf-mailbox";

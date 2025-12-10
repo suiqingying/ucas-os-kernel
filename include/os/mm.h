@@ -50,10 +50,10 @@
 // Swap space configuration
 #define SWAP_START_SECTOR 0x200000  // Start sector for swap space on SD card
 #define MAX_SWAP_PAGES 131072       // Maximum pages that can be swapped (512MB)
-#define TOTAL_PHYSICAL_PAGES 1000  // Total physical pages (224MB) - restored to original size
+#define TOTAL_PHYSICAL_PAGES 1000  // Total physical pages - restored to original size
 
 // Process memory limits
-#define MAX_PAGES_PER_PROCESS (TOTAL_PHYSICAL_PAGES / 3)  // Each process can use at most 1/3 of memory
+#define MAX_PAGES_PER_PROCESS (TOTAL_PHYSICAL_PAGES / 6)  // Each process can use at most 1/3 of memory
 #define KERNEL_RESERVED_PAGES 50    // Pages reserved for kernel operations
 
 extern ptr_t allocPage(int numPage);
@@ -71,6 +71,7 @@ extern void free_pgtable_pages(uintptr_t pgdir);
 extern void init_swap();
 extern int swap_out_page();
 extern void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx);
+void mark_page_nonswappable(uintptr_t pgdir, uintptr_t va);
 
 // Memory statistics
 extern size_t get_free_memory();
@@ -81,12 +82,15 @@ void shm_page_dt(uintptr_t addr);
 
 // Memory page pipe structure for Task 5
 #define MAX_PIPES 32
+#define PIPE_MAX_PAGES_IN_PIPE (TOTAL_PHYSICAL_PAGES - 20)
 
 typedef struct pipe_page {
     void *kva;                   // Kernel virtual address of the page
     uintptr_t pa;                // Physical address of the page
     int in_use;                  // Whether this page contains data
     int size;                    // Size of data in the page
+    int swapped;                 // Whether this page has been swapped out
+    int swap_idx;                // Swap slot index if swapped
     struct pipe_page *next;      // Next page in the pipe
 } pipe_page_t;
 
@@ -98,6 +102,7 @@ typedef struct pipe {
     int total_pages;             // Total pages in pipe
     int is_open;                 // Whether pipe is open
     list_head reader_queue;      // Processes waiting for data
+    list_head writer_queue;      // Processes waiting for space
 } pipe_t;
 
 // Pipe management functions

@@ -13,10 +13,10 @@
 pcb_t pcb[NUM_MAX_TASK];
 const ptr_t pid0_stack = INIT_KERNEL_STACK + PAGE_SIZE;
 pcb_t pid0_pcb = {
-    .pid = 0, .tgid = 0, .kernel_sp = (ptr_t)pid0_stack, .user_sp = (ptr_t)pid0_stack, .status = TASK_RUNNING, .thread_ret = NULL, .allocated_pages = 0};
+    .pid = 0, .tgid = 0, .kernel_sp = (ptr_t)pid0_stack, .user_sp = (ptr_t)pid0_stack, .kernel_stack_base = 0, .user_stack_base = 0, .status = TASK_RUNNING, .thread_ret = NULL, .allocated_pages = 0};
 const ptr_t s_pid0_stack = INIT_KERNEL_STACK + 2 * PAGE_SIZE; // S_KERNEL_STACK_TOP from head.S
 pcb_t s_pid0_pcb = {
-    .pid = -1, .tgid = -1, .kernel_sp = (ptr_t)s_pid0_stack, .user_sp = (ptr_t)s_pid0_stack, .status = TASK_RUNNING, .thread_ret = NULL, .allocated_pages = 0};
+    .pid = -1, .tgid = -1, .kernel_sp = (ptr_t)s_pid0_stack, .user_sp = (ptr_t)s_pid0_stack, .kernel_stack_base = 0, .user_stack_base = 0, .status = TASK_RUNNING, .thread_ret = NULL, .allocated_pages = 0};
 LIST_HEAD(ready_queue);
 LIST_HEAD(sleep_queue);
 
@@ -171,6 +171,10 @@ void pcb_release(pcb_t *p) {
 
     free_block_list(&(p->wait_list));
     release_all_lock(p->pid);
+    if (p->kernel_stack_base) {
+        freePage(p->kernel_stack_base);
+        p->kernel_stack_base = 0;
+    }
     if (p->pgdir) {
         free_pgtable_pages(p->pgdir);
         p->pgdir = 0;
@@ -205,7 +209,8 @@ pid_t do_exec(char *name, int argc, char *argv[]) {
     }
 
     // 5. 分配内核栈
-    uintptr_t kernel_stack = allocPage(1) + PAGE_SIZE;
+    uintptr_t kernel_stack_base = allocPage(1);
+    uintptr_t kernel_stack = kernel_stack_base + PAGE_SIZE;
 
     // 6. 初始化用户栈并拷贝参数 (Args Copying)
     // 栈底: 0xf00010000
@@ -261,6 +266,7 @@ pid_t do_exec(char *name, int argc, char *argv[]) {
     new_pcb->mask = current_running->mask;
     new_pcb->pgdir = pgdir; // 存储 KVA，方便 set_satp 时转换
     new_pcb->kernel_sp = kernel_stack;
+    new_pcb->kernel_stack_base = kernel_stack_base;
     new_pcb->user_sp = final_sp;
     new_pcb->cursor_x = 0;
     new_pcb->cursor_y = 0;
@@ -299,8 +305,9 @@ pid_t do_thread_create(ptr_t entry_point, ptr_t arg) {
     new_pcb->pgdir = current_running->pgdir;
 
     // Allocate a new kernel stack for the new thread
-    ptr_t kernel_stack_ph = allocPage(1);
-    pcb[index].kernel_sp = pa2kva(kernel_stack_ph) + PAGE_SIZE;
+    ptr_t kernel_stack_base = allocPage(1);
+    pcb[index].kernel_sp = kernel_stack_base + PAGE_SIZE;
+    pcb[index].kernel_stack_base = kernel_stack_base;
 
     // Allocate a new user stack for the new thread
     uintptr_t thread_stack_base = USER_STACK_ADDR - (index * PAGE_SIZE);
