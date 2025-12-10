@@ -42,6 +42,9 @@ uint64_t load_task_img(char *task_name, uintptr_t pgdir) {
             // bss 段，清零
             memset((uint8_t *)page_addr, 0, PAGE_SIZE);
         }
+
+        // 代码/静态段不参与换出
+        mark_page_nonswappable(pgdir, user_va);
     }
 
     // 刷新指令缓存，确保 CPU 能看到刚写入的代码
