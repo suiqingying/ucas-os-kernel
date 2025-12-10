@@ -206,9 +206,12 @@ int swap_out_page() {
     local_flush_tlb_page(victim_va);
     freePage(kva);
 
+    // Update process page count - page is swapped out
+    current_running->allocated_pages--;
+
     if (log_detail) {
-        printk("> [SWAP] Page swapped out successfully: VA=0x%lx -> swap_idx=%d\n",
-               victim_va, swap_idx);
+        printk("> [SWAP] Page swapped out successfully: VA=0x%lx -> swap_idx=%d, process pages: %d\n",
+               victim_va, swap_idx, current_running->allocated_pages);
     }
     return swap_idx;
 }
@@ -259,9 +262,16 @@ void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
         set_attribute(pte, _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE |
                           _PAGE_EXEC | _PAGE_USER | _PAGE_ACCESSED | _PAGE_DIRTY);
         local_flush_tlb_page(va);
+
+        // Find which process this page belongs to and update its count
+        // For now, we update current_running's count (assuming it's for current process)
+        pcb_t *target_process = current_running;
+        // In a more complete implementation, we would search for the process that owns pgdir
+        target_process->allocated_pages++;
+
         if (log_detail) {
-            printk("> [SWAP] Page swapped in successfully: swap_idx=%d -> VA=0x%lx, PA=0x%lx\n",
-                   swap_idx, va, kva2pa(new_page));
+            printk("> [SWAP] Page swapped in successfully: swap_idx=%d -> VA=0x%lx, PA=0x%lx, process %d pages: %d\n",
+                   swap_idx, va, kva2pa(new_page), target_process->pid, target_process->allocated_pages);
         }
     } else {
         printk("> [SWAP] ERROR: Could not find PTE for VA=0x%lx\n", va);
@@ -470,13 +480,28 @@ uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir) {
     if ((pgdir_kva[vpn2] & _PAGE_PRESENT) == 0) {
         ptr_t new_page = allocPage(1);
         if (new_page == 0) {
-            printk("[MM] alloc_page_helper: failed to allocate L2 page table\n");
-            return 0;
+            // Try to swap if we hit the process limit
+            if (current_running->allocated_pages >= MAX_PAGES_PER_PROCESS) {
+                printk("[MM] Process %d hit memory limit (%d >= %d), trying swap\n",
+                       current_running->pid, current_running->allocated_pages, MAX_PAGES_PER_PROCESS);
+                // Swap out one of this process's pages
+                if (swap_out_page() >= 0) {
+                    new_page = allocPage(1);
+                }
+            }
+
+            if (new_page == 0) {
+                printk("[MM] alloc_page_helper: failed to allocate L2 page table\n");
+                return 0;
+            }
         }
         clear_pgdir(new_page);
         // [修正] 中间页表项：只给 V 位，绝对不要给 U 位
         set_pfn(&pgdir_kva[vpn2], kva2pa(new_page) >> NORMAL_PAGE_SHIFT);
         set_attribute(&pgdir_kva[vpn2], _PAGE_PRESENT);
+
+        // Update process page count
+        current_running->allocated_pages++;
     }
 
     // 1. 获取 L1 页表的物理地址 PA，并转为 KVA
@@ -486,13 +511,28 @@ uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir) {
     if ((pmd[vpn1] & _PAGE_PRESENT) == 0) {
         ptr_t new_page = allocPage(1);
         if (new_page == 0) {
-            printk("[MM] alloc_page_helper: failed to allocate L1 page table\n");
-            return 0;
+            // Try to swap if we hit the process limit
+            if (current_running->allocated_pages >= MAX_PAGES_PER_PROCESS) {
+                printk("[MM] Process %d hit memory limit (%d >= %d), trying swap\n",
+                       current_running->pid, current_running->allocated_pages, MAX_PAGES_PER_PROCESS);
+                // Swap out one of this process's pages
+                if (swap_out_page() >= 0) {
+                    new_page = allocPage(1);
+                }
+            }
+
+            if (new_page == 0) {
+                printk("[MM] alloc_page_helper: failed to allocate L1 page table\n");
+                return 0;
+            }
         }
         clear_pgdir(new_page);
         // [修正] 中间页表项：只给 V 位，绝对不要给 U 位
         set_pfn(&pmd[vpn1], kva2pa(new_page) >> NORMAL_PAGE_SHIFT);
         set_attribute(&pmd[vpn1], _PAGE_PRESENT);
+
+        // Update process page count
+        current_running->allocated_pages++;
     }
 
     // 1. 获取 L0 页表的物理地址 PA，并转为 KVA
@@ -508,14 +548,29 @@ uintptr_t alloc_page_helper(uintptr_t va, uintptr_t pgdir) {
     // 建立最终映射
     ptr_t final_page = allocPage(1);
     if (final_page == 0) {
-        printk("[MM] alloc_page_helper failed: out of memory!\n");
-        return 0;  // Return 0 to indicate failure
+        // Try to swap if we hit the process limit
+        if (current_running->allocated_pages >= MAX_PAGES_PER_PROCESS) {
+            printk("[MM] Process %d hit memory limit (%d >= %d), trying swap\n",
+                   current_running->pid, current_running->allocated_pages, MAX_PAGES_PER_PROCESS);
+            // Swap out one of this process's pages
+            if (swap_out_page() >= 0) {
+                final_page = allocPage(1);
+            }
+        }
+
+        if (final_page == 0) {
+            printk("[MM] alloc_page_helper failed: out of memory!\n");
+            return 0;  // Return 0 to indicate failure
+        }
     }
     // 清零新分配的页，防止访问到脏数据
     memset((void *)final_page, 0, PAGE_SIZE);
     set_pfn(&pte[vpn0], kva2pa(final_page) >> NORMAL_PAGE_SHIFT);
     // [保持] 叶子节点：必须给足 V, R, W, X, U, A, D
     set_attribute(&pte[vpn0], _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE | _PAGE_EXEC | _PAGE_USER | _PAGE_ACCESSED | _PAGE_DIRTY);
+
+    // Update process page count
+    current_running->allocated_pages++;
 
     return final_page;
 }

@@ -52,6 +52,10 @@
 #define MAX_SWAP_PAGES 131072       // Maximum pages that can be swapped (512MB)
 #define TOTAL_PHYSICAL_PAGES 1000  // Total physical pages (224MB) - restored to original size
 
+// Process memory limits
+#define MAX_PAGES_PER_PROCESS (TOTAL_PHYSICAL_PAGES / 3)  // Each process can use at most 1/3 of memory
+#define KERNEL_RESERVED_PAGES 50    // Pages reserved for kernel operations
+
 extern ptr_t allocPage(int numPage);
 
 void freePage(ptr_t baseAddr);

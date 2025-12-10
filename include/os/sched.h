@@ -102,6 +102,9 @@ typedef struct pcb
     /* Pipes opened by this process */
     int open_pipes[MAX_PROCESS_PIPES];
     int num_open_pipes;
+
+    /* Memory usage tracking */
+    int allocated_pages;      /* Number of physical pages allocated to this process */
 } pcb_t;
 
 /* ready queue to run */
