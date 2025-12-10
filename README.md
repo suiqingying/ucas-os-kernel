@@ -798,9 +798,16 @@ int swap_out_page() {
 ```
 
 **SD 卡 Swap 空间管理**：
-- 起始扇区：`SWAP_START_SECTOR = 0x200000`
+
+早期：
+- 起始扇区：`SWAP_START_SECTOR = 0x200000` 
 - 最大页数：`MAX_SWAP_PAGES = 1024`
 - 每页占用 8 个扇区（4KB = 8 × 512B）
+
+优化：
+- 起始扇区：由 `createimage` 动态放在镜像末尾，并写入 bootblock，内核启动时读取为 `swap_start_sector`
+- 最大页数：`MAX_SWAP_PAGES = 131072`
+- 每页占用：`SWAP_SECTORS_PER_PAGE = 8`（4KB = 8 × 512B）
 
 #### 6.2.3 内存统计功能
 
@@ -1206,7 +1213,7 @@ if (current_running->allocated_pages >= MAX_PAGES_PER_PROCESS) {
 | `mailbox send warmup failed (-1)` / 大包卡死 | `MAX_MBOX_LENGTH=64` 字节，拷贝逻辑一次性搬完；`map_user_page()` 不识别 `_PAGE_SOFT`，页在 swap 就直接报错 | 1) 把缓冲区扩到 8KB 并实现分段拷贝/阻塞唤醒，2) `map_user_page()` 检测 `_PAGE_SOFT` 时主动 `swap_in_page()`，保障大包流式传输 | `include/os/lock.h:110`, `kernel/locking/lock.c:271-420` |
 | `mailbox` 复用旧名字后自带垃圾数据 | `do_mbox_open()` 只设置 `name`，没有重置 `wcur/rcur` 和缓冲区 | 初始化时清零缓冲区与 wait 队列，打开新 mbox 时显式重置读写游标并 `memset` | `kernel/locking/lock.c:271-320` |
 | 缺页换回后仍崩溃或 swap 索引被截断 | 在缺页处理中从 PTE 取 swap_idx 只保留低 10 位，32MB 以上 swap 区直接读取错误位置 | 使用 `get_pfn(*pte)` 获取完整 PFN 作为 swap 索引，匹配 `swap_out_page()` 的写法 | `kernel/irq/irq.c:40-47` |
-| 运行 `ipc` 时出现 `blocks write error!`，swap 永远失败 | SD 镜像中根本没预留 0x200000 之后的扇区，内核写 swap 区时报错 | `createimage` 生成镜像时强制在尾部 padding 出 `[SWAP_START_SECTOR, SWAP_START_SECTOR + MAX_SWAP_PAGES*8)` 区域 | `tools/createimage.c:17-335` |
+| 运行 `ipc` 时出现 `blocks write error!`，swap 永远失败 | SD 镜像中根本没预留 swap 区，内核写 swap 区时报错 | `createimage` 改为在镜像末尾动态放置 swap 区并写入 bootblock，内核启动时读取 `swap_start_sector` | `tools/createimage.c:17-335`, `kernel/mm/mm.c` |
 | 进程退出后内存泄漏、`free -h` 永远为 0 | `pcb_release()` 注释掉了 `free_pgtable_pages()`，导致页表/用户页不回收 | 恢复 `pcb_release()` 中的 `free_pgtable_pages()` 调用并把 `pgdir` 清零 | `kernel/sched/sched.c:171-178`, `kernel/mm/mm.c:414-447` |
 | `free` 统计和 swap 压力检测完全依赖 `total_allocated_pages`，在缩小物理内存实验时得出"内存已满"错觉 | `allocPage()` 只看累计分配数，不关心真正还在使用的物理页，swap 永远触发/或永远不触发 | 引入 `used_physical_pages` 计数；内存压力、`free` 统计都基于"在用 + 空闲 + 未分配"真实页数，日志中可见具体值 | `kernel/mm/mm.c:11-411` |
 
@@ -1235,3 +1242,12 @@ if (current_running->allocated_pages >= MAX_PAGES_PER_PROCESS) {
   - `do_exec` 去掉多余的栈页分配，只保留一页并保存基址；`do_thread_create` 同步修正。
   - pid0/s_pid0 的栈基址设为 0，防止误释放。
 - **关键代码**：`kernel/sched/sched.c`（内核栈分配与回收）。
+
+## 14. 动态 Swap 布局
+
+- **问题**：`createimage` 将 swap 起始扇区硬编码为 0x200000，镜像前部浪费大量空洞；内核也用同样的硬编码。
+- **改动**：
+  - `createimage` 将 swap 区放在镜像内容末尾，写入 bootblock（`SWAP_INFO_LOC`）两项：起始扇区、`MAX_SWAP_PAGES`。
+  - 内核启动时从 bootblock 读取 `swap_start_sector`，打印实际范围；`SWAP_SECTORS_PER_PAGE` 固定为 8。
+  - 保留 fallback：若 bootblock 未写入，则退回旧默认值防止崩溃。
+- **关键代码**：`tools/createimage.c`（动态定位+写 swap 信息）、`kernel/mm/mm.c`（读取 bootblock 并使用 `swap_start_sector`）。

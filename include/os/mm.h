@@ -48,9 +48,10 @@
 #define ROUNDDOWN(a, n) (((uint64_t)(a)) & ~((n) - 1))
 
 // Swap space configuration
-#define SWAP_START_SECTOR 0x200000  // Start sector for swap space on SD card
 #define MAX_SWAP_PAGES 131072       // Maximum pages that can be swapped (512MB)
+#define SWAP_SECTORS_PER_PAGE 8
 #define TOTAL_PHYSICAL_PAGES 1000  // Total physical pages - restored to original size
+extern uint32_t swap_start_sector;  // runtime swap start sector (written by createimage)
 
 // Process memory limits
 #define MAX_PAGES_PER_PROCESS (TOTAL_PHYSICAL_PAGES / 6)  // Each process can use at most 1/3 of memory

@@ -28,6 +28,7 @@ static int swap_enabled = 0;
 static uint64_t swap_pressure_events = 0;
 static uint64_t swap_out_events = 0;
 static uint64_t swap_in_events = 0;
+uint32_t swap_start_sector = 0;       // runtime swap start, filled from bootblock
 
 // 全局可换出页链表（仅跟踪用户动态页）
 typedef struct swappable_page {
@@ -48,6 +49,10 @@ static inline int swap_should_log(uint64_t counter) {
     return 0;
 #endif
 }
+
+// Boot block layout (keep in sync with tools/createimage.c)
+#define BOOTBLOCK_PA 0x50200000UL
+#define SWAP_INFO_OFFSET 0x1ec
 
 static void init_swappable_tracking() {
     init_list_head(&swappable_list);
@@ -80,6 +85,28 @@ static int swap_out_pipe_page(void);
 static void release_swappable_node(swappable_page_t *node) {
     node->node.next = (list_node_t *)free_swappable_nodes;
     free_swappable_nodes = node;
+}
+
+static void load_swap_layout_from_bootblock(void) {
+    if (swap_start_sector != 0) {
+        return;
+    }
+    uint32_t *info = (uint32_t *)pa2kva(BOOTBLOCK_PA + SWAP_INFO_OFFSET);
+    uint32_t start = info[0];
+    uint32_t pages = info[1];
+    if (start != 0) {
+        swap_start_sector = start;
+    }
+    if (pages != MAX_SWAP_PAGES) {
+        printk("> [SWAP] Warning: boot swap pages %u != MAX_SWAP_PAGES(%d), using compiled value\n",
+               pages, MAX_SWAP_PAGES);
+    }
+    if (swap_start_sector == 0) {
+        // Fallback to legacy default to avoid crash
+        swap_start_sector = 0x200000;
+        printk("> [SWAP] Warning: swap_start not found in bootblock, fallback to 0x%x\n",
+               swap_start_sector);
+    }
 }
 
 static pcb_t *find_pcb_by_pgdir(uintptr_t pgdir) {
@@ -142,6 +169,7 @@ static ptr_t alloc_from_free_list(void) {
 }
 
 void init_swap() {
+    load_swap_layout_from_bootblock();
     init_swappable_tracking();
 
     // Initialize swap bitmap
@@ -155,7 +183,7 @@ void init_swap() {
     printk("> [SWAP]   - Total swap pages: %d (%d MB)\n", MAX_SWAP_PAGES, (MAX_SWAP_PAGES * 4) / 1024);
     printk("> [SWAP]   - Physical memory: %d pages (%d MB)\n", TOTAL_PHYSICAL_PAGES, (TOTAL_PHYSICAL_PAGES * 4) / 1024);
     printk("> [SWAP]   - Swap space range: 0x%x - 0x%x\n",
-           SWAP_START_SECTOR, SWAP_START_SECTOR + MAX_SWAP_PAGES * 8);
+           swap_start_sector, swap_start_sector + MAX_SWAP_PAGES * SWAP_SECTORS_PER_PAGE);
     printk("> [SWAP]   - Swap buffer: %d pages reserved\n", 10);
 }
 
@@ -214,12 +242,12 @@ int swap_out_page() {
         }
 
         uintptr_t kva = pa2kva(pa);
-        uint32_t sector = SWAP_START_SECTOR + swap_idx * 8; // 8 sectors per page
+        uint32_t sector = swap_start_sector + swap_idx * SWAP_SECTORS_PER_PAGE;
         if (log_detail) {
             printk("> [SWAP] Writing page: pgdir=0x%lx VA=0x%lx -> swap_idx=%d\n",
                    entry->pgdir, entry->va, swap_idx);
         }
-        if (sd_write(kva2pa(kva), 8, sector) != 0) {
+        if (sd_write(kva2pa(kva), SWAP_SECTORS_PER_PAGE, sector) != 0) {
             printk("> [SWAP] ERROR: SD write failed for swap_idx=%d (sector=0x%x)\n",
                    swap_idx, sector);
             free_swap_slot(swap_idx);
@@ -276,12 +304,12 @@ void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
     }
 
     // Read page from SD card
-    uint32_t sector = SWAP_START_SECTOR + swap_idx * 8;
+    uint32_t sector = swap_start_sector + swap_idx * SWAP_SECTORS_PER_PAGE;
     if (log_detail) {
         printk("> [SWAP] Reading page from SD card: swap_idx=%d, sector=0x%x\n",
                swap_idx, sector);
     }
-    if (sd_read(kva2pa(new_page), 8, sector) != 0) {
+    if (sd_read(kva2pa(new_page), SWAP_SECTORS_PER_PAGE, sector) != 0) {
         printk("> [SWAP] ERROR: SD read failed for swap_idx=%d (sector=0x%x)\n",
                swap_idx, sector);
         freePage(new_page);
@@ -654,8 +682,8 @@ static int swap_out_pipe_page(void) {
             if (idx < 0) {
                 return -1;
             }
-            uint32_t sector = SWAP_START_SECTOR + idx * 8;
-            if (sd_write(pg->pa, 8, sector) != 0) {
+            uint32_t sector = swap_start_sector + idx * SWAP_SECTORS_PER_PAGE;
+            if (sd_write(pg->pa, SWAP_SECTORS_PER_PAGE, sector) != 0) {
                 free_swap_slot(idx);
                 continue;
             }
@@ -939,8 +967,8 @@ long do_pipe_take_pages(int pipe_idx, void *dst, size_t length) {
                 release_pipe_page_struct(page);
                 continue;
             }
-            uint32_t sector = SWAP_START_SECTOR + page->swap_idx * 8;
-            if (sd_read(kva2pa(new_page), 8, sector) != 0) {
+            uint32_t sector = swap_start_sector + page->swap_idx * SWAP_SECTORS_PER_PAGE;
+            if (sd_read(kva2pa(new_page), SWAP_SECTORS_PER_PAGE, sector) != 0) {
                 freePage(new_page);
                 release_pipe_page_struct(page);
                 continue;

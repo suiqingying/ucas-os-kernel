@@ -13,13 +13,14 @@
 #define BOOT_LOADER_SIG_OFFSET 0x1fe
 #define OS_SIZE_LOC (BOOT_LOADER_SIG_OFFSET - 2)
 #define APP_INFO_ADDR_LOC (BOOT_LOADER_SIG_OFFSET - 10)
+// Reserve 8 bytes for swap info (start sector, max pages) below app info
+#define SWAP_INFO_LOC (BOOT_LOADER_SIG_OFFSET - 18)
 #define BATCH_FILE_SECTOR 50
 #define BOOT_LOADER_SIG_1 0x55
 #define BOOT_LOADER_SIG_2 0xaa
 
 // Keep these values synchronized with include/os/mm.h
-#define SWAP_START_SECTOR 0x200000
-#define MAX_SWAP_PAGES 131072
+#define MAX_SWAP_PAGES 131072 / 64 // Maximum pages that can be swapped (512MB)
 #define SWAP_SECTORS_PER_PAGE 8
 
 #define NBYTES2SEC(nbytes) (((nbytes) / SECTOR_SIZE) + ((nbytes) % SECTOR_SIZE != 0))
@@ -54,7 +55,8 @@ static void write_segment(Elf64_Phdr phdr, FILE *fp, FILE *img, int *phyaddr);
 static void write_padding(FILE *img, int *phyaddr, int new_phyaddr);
 static void write_img_info(int nbytes_kernel, task_info_t *taskinfo,
                            short tasknum, FILE *img, int *taskinfo_addr);
-static void reserve_swap_space(FILE *img, int *phyaddr);
+static void reserve_swap_space(FILE *img, int *phyaddr, int *swap_start_sector);
+static void write_swap_info(FILE *img, int swap_start_sector);
 
 int main(int argc, char **argv)
 {
@@ -183,8 +185,10 @@ static void create_image(int nfiles, char *files[])
     write_padding(img, &phyaddr, (batch_sector + 1) * SECTOR_SIZE);
     printf("Reserved one sector for batch file at sector %d, current phyaddr:%x\n", batch_sector, phyaddr);
 
-    /* finally ensure swap region exists inside the SD image */
-    reserve_swap_space(img, &phyaddr);
+    /* finally ensure swap region exists inside the SD image and record its start */
+    int swap_start_sector = 0;
+    reserve_swap_space(img, &phyaddr, &swap_start_sector);
+    write_swap_info(img, swap_start_sector);
     fclose(img);
 }
 
@@ -292,35 +296,40 @@ static void write_img_info(int nbytes_kernel, task_info_t *taskinfo,
     *taskinfo_addr += info_size;
 }
 
-static void reserve_swap_space(FILE *img, int *phyaddr)
+static void reserve_swap_space(FILE *img, int *phyaddr, int *swap_start_sector)
 {
-    long long swap_start = (long long)SWAP_START_SECTOR * SECTOR_SIZE;
+    // Place swap right after current payload (aligned to sector boundary)
+    int start_sector = NBYTES2SEC(*phyaddr);
+    long long swap_start = (long long)start_sector * SECTOR_SIZE;
     long long swap_end =
         swap_start + (long long)MAX_SWAP_PAGES * SWAP_SECTORS_PER_PAGE * SECTOR_SIZE;
-    int swap_start_sector = SWAP_START_SECTOR;
-    int swap_end_sector = SWAP_START_SECTOR + MAX_SWAP_PAGES * SWAP_SECTORS_PER_PAGE;
+    int swap_end_sector = start_sector + MAX_SWAP_PAGES * SWAP_SECTORS_PER_PAGE;
 
-    if (*phyaddr > swap_start) {
-        fprintf(stderr,
-                "Warning: image payload (0x%x) already exceeds swap start (0x%llx)\n",
-                *phyaddr, swap_start);
+    if (options.extended) {
+        printf("Placing swap after payload at sector 0x%x (%lld bytes)\n",
+               start_sector, swap_start);
     }
 
-    if (*phyaddr < swap_start) {
-        if (options.extended) {
-            printf("Padding image to swap start sector 0x%x (%lld bytes)\n",
-                   swap_start_sector, swap_start);
-        }
-        fseek(img, swap_start - 1, SEEK_SET);
-        fputc(0, img);
-    }
-
+    // Pad to swap end so the image file actually contains the reserved space
     fseek(img, swap_end - 1, SEEK_SET);
     fputc(0, img);
     *phyaddr = (int)swap_end;
+    *swap_start_sector = start_sector;
     printf("Reserved swap space: sectors [0x%x, 0x%x), size=%lld bytes (~%lld MB)\n",
-           swap_start_sector, swap_end_sector,
+           start_sector, swap_end_sector,
            swap_end - swap_start, (swap_end - swap_start) / (1024 * 1024));
+}
+
+static void write_swap_info(FILE *img, int swap_start_sector)
+{
+    // Write swap start sector and max pages into bootblock (below app-info)
+    fseek(img, SWAP_INFO_LOC, SEEK_SET);
+    fwrite(&swap_start_sector, sizeof(int), 1, img);
+    fwrite(&(int){MAX_SWAP_PAGES}, sizeof(int), 1, img);
+    if (options.extended) {
+        printf("swap_start_sector=%d written at offset 0x%x\n",
+               swap_start_sector, SWAP_INFO_LOC);
+    }
 }
 
 /* print an error message and exit */
