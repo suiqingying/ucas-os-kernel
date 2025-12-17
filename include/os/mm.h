@@ -50,7 +50,7 @@
 // Swap space configuration
 #define MAX_SWAP_PAGES 131072       // Maximum pages that can be swapped (512MB)
 #define SWAP_SECTORS_PER_PAGE 8
-#define TOTAL_PHYSICAL_PAGES 1000  // Total physical pages - restored to original size
+#define TOTAL_PHYSICAL_PAGES 750  // Total physical pages - restored to original size
 extern uint32_t swap_start_sector;  // runtime swap start sector (written by createimage)
 
 // Process memory limits

@@ -76,13 +76,7 @@ int ARRTIBUTE_BOOTKERNEL boot_kernel(unsigned long mhartid)
 {
     if (mhartid == 0) {
         setup_vm();
-        // [修改] 直接写入，增加 memory fence
-        pgtable_init_done = 1;
-        asm volatile("fence"); 
     } else {
-        // [修改] 直接读取
-        while (pgtable_init_done == 0);
-        asm volatile("fence");
         enable_vm();
     }
 

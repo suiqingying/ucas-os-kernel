@@ -35,6 +35,7 @@ task_info_t tasks[TASK_MAXNUM];
 
 // A simple barrier for core synchronization
 volatile int boot_barrier = 0;
+volatile int boot_cnt = 0;
 
 static void init_jmptab(void) {
     volatile long (*(*jmptab))() = (volatile long (*(*))())KERNEL_JMPTAB_BASE;
@@ -138,8 +139,6 @@ static void init_pcb(void) {
     init_pcb_stack(s_pid0_pcb.kernel_sp, s_pid0_pcb.user_sp, (uint64_t)ret_from_exception, &s_pid0_pcb, 0, NULL);
     for (int i = 0; i < NUM_MAX_TASK; i++)
         pcb[i].status = TASK_EXITED;
-    /* remember to initialize 'current_running' */
-    current_running = &pid0_pcb;
 }
 
 static void init_syscall(void) {
@@ -194,13 +193,11 @@ static void init_syscall(void) {
 int main() {
     int hartid = get_current_cpu_id();
     if (hartid == 0) {
-        // 取消临时映射
-        cancel_identity_mapping();
 
         init_jmptab(); // Init jump table provided by kernel and bios(ΦωΦ)
 
         smp_init(); // Init SMP lock mechanism
-
+        lock_kernel();
 
         // Init task information (〃'▽'〃)
         init_task_info();
@@ -221,17 +218,18 @@ int main() {
         printk("> [INIT] CPU time_base: %lu Hz\n", time_base);
 
         wakeup_other_hart();
+        while (boot_cnt < NR_CPUS - 1);
+        printk("> [INIT] All harts are up. Continuing boot...\n");
+        cancel_identity_mapping();
     } else {
         /************************************************************/
         /*                  从核的等待与唤醒                        */
         /************************************************************/
 
-        // 从核在此自旋，等待主核完成全局初始化
-        smp_wait_for_boot();
+        boot_cnt++;
         // 加锁打印，防止和 Hart 0 冲突
         lock_kernel();
         printk("> [INIT] Hart %d has woken up.\n", hartid);
-        unlock_kernel();
     }
     /****************************************************************/
     /*               每核初始化 (所有核都执行)                      */
@@ -248,12 +246,9 @@ int main() {
     
     if (hartid == 0) {
         do_exec("shell", 0, NULL);
-        lock_kernel();
         printk("> [INIT] Shell task started on Hart 0.\n");
-        unlock_kernel();
     }
 
-    lock_kernel();
     printk("> [INIT] Hart %d interrupt enabled.\n", hartid);
     unlock_kernel();
 

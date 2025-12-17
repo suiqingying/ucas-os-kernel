@@ -2,6 +2,7 @@
 #include <os/mm.h>
 #include <os/sched.h>
 #include <os/string.h>
+#include <os/smp.h>
 #include <pgtable.h>
 #include <printk.h>
 #include <type.h>
@@ -21,7 +22,8 @@ static ptr_t free_list_head = 0; // 空闲链表头
 
 #define SWAP_LOG_INITIAL 5
 #define SWAP_LOG_INTERVAL 1
-static int swap_bitmap[MAX_SWAP_PAGES]; // Swap space allocation bitmap (8192 pages = 32MB)
+static int swap_bitmap[MAX_SWAP_PAGES]; // Swap slot bitmap (upper bound, see swap_max_pages)
+static int swap_max_pages = MAX_SWAP_PAGES;
 static int total_allocated_pages = 0;
 static int used_physical_pages = 0; // Pages not in free list (actually used)
 static int swap_enabled = 0;
@@ -97,9 +99,16 @@ static void load_swap_layout_from_bootblock(void) {
     if (start != 0) {
         swap_start_sector = start;
     }
-    if (pages != MAX_SWAP_PAGES) {
-        printk("> [SWAP] Warning: boot swap pages %u != MAX_SWAP_PAGES(%d), using compiled value\n",
+    if (pages == 0) {
+        swap_max_pages = MAX_SWAP_PAGES;
+        printk("> [SWAP] Warning: swap pages not found in bootblock, using MAX_SWAP_PAGES(%d)\n",
+               MAX_SWAP_PAGES);
+    } else if (pages > (uint32_t)MAX_SWAP_PAGES) {
+        swap_max_pages = MAX_SWAP_PAGES;
+        printk("> [SWAP] Warning: boot swap pages %u > MAX_SWAP_PAGES(%d), clamping\n",
                pages, MAX_SWAP_PAGES);
+    } else {
+        swap_max_pages = (int)pages;
     }
     if (swap_start_sector == 0) {
         // Fallback to legacy default to avoid crash
@@ -119,6 +128,25 @@ static pcb_t *find_pcb_by_pgdir(uintptr_t pgdir) {
     if (pid0_pcb.pgdir == pgdir) return &pid0_pcb;
     if (s_pid0_pcb.pgdir == pgdir) return &s_pid0_pcb;
     return NULL;
+}
+
+static int pgdir_running_on_other_hart(uintptr_t pgdir, pcb_t *self) {
+    if (pgdir == 0) return 0;
+
+    for (int i = 0; i < NUM_MAX_TASK; i++) {
+        if (&pcb[i] != self && pcb[i].pgdir == pgdir && pcb[i].status == TASK_RUNNING) {
+            return 1;
+        }
+    }
+
+    if (&pid0_pcb != self && pid0_pcb.pgdir == pgdir && pid0_pcb.status == TASK_RUNNING) {
+        return 1;
+    }
+    if (&s_pid0_pcb != self && s_pid0_pcb.pgdir == pgdir && s_pid0_pcb.status == TASK_RUNNING) {
+        return 1;
+    }
+
+    return 0;
 }
 
 static void remove_swappable_page(uintptr_t pgdir, uintptr_t va) {
@@ -173,23 +201,23 @@ void init_swap() {
     init_swappable_tracking();
 
     // Initialize swap bitmap
-    for (int i = 0; i < MAX_SWAP_PAGES; i++) {
+    for (int i = 0; i < swap_max_pages; i++) {
         swap_bitmap[i] = 0; // 0 = free, 1 = used
     }
 
     swap_enabled = 1;
 
     printk("> [SWAP] Swap mechanism initialized:\n");
-    printk("> [SWAP]   - Total swap pages: %d (%d MB)\n", MAX_SWAP_PAGES, (MAX_SWAP_PAGES * 4) / 1024);
+    printk("> [SWAP]   - Total swap pages: %d (%d MB)\n", swap_max_pages, (swap_max_pages * 4) / 1024);
     printk("> [SWAP]   - Physical memory: %d pages (%d MB)\n", TOTAL_PHYSICAL_PAGES, (TOTAL_PHYSICAL_PAGES * 4) / 1024);
     printk("> [SWAP]   - Swap space range: 0x%x - 0x%x\n",
-           swap_start_sector, swap_start_sector + MAX_SWAP_PAGES * SWAP_SECTORS_PER_PAGE);
+           swap_start_sector, swap_start_sector + swap_max_pages * SWAP_SECTORS_PER_PAGE);
     printk("> [SWAP]   - Swap buffer: %d pages reserved\n", 10);
 }
 
 // Allocate a swap slot
 static int alloc_swap_slot() {
-    for (int i = 0; i < MAX_SWAP_PAGES; i++) {
+    for (int i = 0; i < swap_max_pages; i++) {
         if (swap_bitmap[i] == 0) {
             swap_bitmap[i] = 1;
             return i;
@@ -200,7 +228,7 @@ static int alloc_swap_slot() {
 
 // Free a swap slot
 static void free_swap_slot(int idx) {
-    if (idx >= 0 && idx < MAX_SWAP_PAGES) {
+    if (idx >= 0 && idx < swap_max_pages) {
         swap_bitmap[idx] = 0;
     }
 }
@@ -211,65 +239,84 @@ int swap_out_page() {
 
     swap_out_events++;
     int log_detail = swap_should_log(swap_out_events);
-    for (list_node_t *pos = swappable_list.next; pos != &swappable_list;) {
-        swappable_page_t *entry = (swappable_page_t *)pos;
-        list_node_t *next = pos->next;
-        uintptr_t pte_ptr = get_pteptr_of(entry->va, entry->pgdir);
-        if (!pte_ptr) {
-            delete_node_from_q(&entry->node);
-            release_swappable_node(entry);
-            pos = next;
-            continue;
-        }
 
-        PTE *pte = (PTE *)pte_ptr;
-        if (!(*pte & _PAGE_PRESENT)) {
-            pos = next;
-            continue; // 已在 swap 中
-        }
-        if (!(*pte & _PAGE_SWAPPABLE)) {
-            delete_node_from_q(&entry->node);
-            release_swappable_node(entry);
-            pos = next;
-            continue;
-        }
+    /*
+     * Two-pass victim selection:
+     *   pass 0: prefer pages whose address space is not running on another hart
+     *   pass 1: allow pages from other-hart running address spaces, but first
+     *           force a remote TLB shootdown (IPI) to stop concurrent access.
+     */
+    for (int pass = 0; pass < 2; pass++) {
+        for (list_node_t *pos = swappable_list.next; pos != &swappable_list;) {
+            swappable_page_t *entry = (swappable_page_t *)pos;
+            pos = pos->next;
 
-        uintptr_t pa = get_pa(*pte);
-        int swap_idx = alloc_swap_slot();
-        if (swap_idx < 0) {
-            printk("> [SWAP] No swap space available!\n");
-            return -1;
-        }
+            int other_hart_running = pgdir_running_on_other_hart(entry->pgdir, current_running);
+            if (pass == 0 && other_hart_running) {
+                continue;
+            }
+
+            delete_node_from_q(&entry->node);
+
+            uintptr_t pte_ptr = get_pteptr_of(entry->va, entry->pgdir);
+            if (!pte_ptr) {
+                release_swappable_node(entry);
+                continue;
+            }
+
+            PTE *pte = (PTE *)pte_ptr;
+            if (!(*pte & _PAGE_PRESENT) || !(*pte & _PAGE_SWAPPABLE) || !(*pte & _PAGE_USER)) {
+                release_swappable_node(entry);
+                continue;
+            }
+
+            uintptr_t pa = get_pa(*pte);
+            int swap_idx = alloc_swap_slot();
+            if (swap_idx < 0) {
+                printk("> [SWAP] No swap space available!\n");
+                add_node_to_q(&entry->node, &swappable_list);
+                return -1;
+            }
 
         uintptr_t kva = pa2kva(pa);
-        uint32_t sector = swap_start_sector + swap_idx * SWAP_SECTORS_PER_PAGE;
-        if (log_detail) {
-            printk("> [SWAP] Writing page: pgdir=0x%lx VA=0x%lx -> swap_idx=%d\n",
-                   entry->pgdir, entry->va, swap_idx);
-        }
-        if (sd_write(kva2pa(kva), SWAP_SECTORS_PER_PAGE, sector) != 0) {
-            printk("> [SWAP] ERROR: SD write failed for swap_idx=%d (sector=0x%x)\n",
-                   swap_idx, sector);
-            free_swap_slot(swap_idx);
-            return -1;
-        }
+            uint32_t sector = swap_start_sector + swap_idx * SWAP_SECTORS_PER_PAGE;
+            if (log_detail) {
+                printk("> [SWAP] Writing page: pgdir=0x%lx VA=0x%lx -> swap_idx=%d\n",
+                       entry->pgdir, entry->va, swap_idx);
+            }
+            if (sd_write(kva2pa(kva), SWAP_SECTORS_PER_PAGE, sector) != 0) {
+                printk("> [SWAP] ERROR: SD write failed for swap_idx=%d (sector=0x%x)\n",
+                       swap_idx, sector);
+                free_swap_slot(swap_idx);
+                add_node_to_q(&entry->node, &swappable_list);
+                continue;
+            }
 
-        uint64_t flags = get_attribute(*pte, (1lu << _PAGE_PFN_SHIFT) - 1);
-        flags &= ~_PAGE_PRESENT;
-        *pte = flags | ((uint64_t)swap_idx << _PAGE_PFN_SHIFT) | _PAGE_SOFT;
-        local_flush_tlb_page(entry->va);
-        freePage(kva);
+            uint64_t flags = get_attribute(*pte, (1lu << _PAGE_PFN_SHIFT) - 1);
+            flags &= ~_PAGE_PRESENT;
+            *pte = flags | ((uint64_t)swap_idx << _PAGE_PFN_SHIFT) | _PAGE_SOFT;
 
-        pcb_t *owner = find_pcb_by_pgdir(entry->pgdir);
-        if (owner) {
-            owner->allocated_pages--;
-        }
+            // Memory barrier to ensure PTE update is visible before TLB flush/free
+            __asm__ volatile("fence rw,rw" ::: "memory");
 
-        if (log_detail) {
-            printk("> [SWAP] Swapped page pgdir=0x%lx VA=0x%lx -> idx=%d\n",
-                   entry->pgdir, entry->va, swap_idx);
+            // Local TLB flush for the current hart
+            local_flush_tlb_page(entry->va);
+
+            freePage(kva);
+
+            pcb_t *owner = find_pcb_by_pgdir(entry->pgdir);
+            if (owner) {
+                owner->allocated_pages--;
+            }
+
+            if (log_detail) {
+                printk("> [SWAP] Swapped page pgdir=0x%lx VA=0x%lx -> idx=%d\n",
+                       entry->pgdir, entry->va, swap_idx);
+            }
+
+            release_swappable_node(entry);
+            return swap_idx;
         }
-        return swap_idx;
     }
 
     return -1;
@@ -277,7 +324,7 @@ int swap_out_page() {
 
 // Swap in a page from SD card
 void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
-    if (!swap_enabled || swap_idx < 0 || swap_idx >= MAX_SWAP_PAGES) return;
+    if (!swap_enabled || swap_idx < 0 || swap_idx >= swap_max_pages) return;
 
     swap_in_events++;
     int log_detail = swap_should_log(swap_in_events);
@@ -326,6 +373,11 @@ void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
         flags |= _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE |
                  _PAGE_EXEC | _PAGE_USER | _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_SWAPPABLE;
         set_attribute(pte, flags);
+
+        // Memory barrier to ensure PTE update is visible to all cores
+        __asm__ volatile("fence rw,rw" ::: "memory");
+
+        // Local TLB flush - other cores will fault and refill if needed
         local_flush_tlb_page(va);
 
         // Find which process this page belongs to and update its count
@@ -902,6 +954,11 @@ long do_pipe_give_pages(int pipe_idx, void *src, size_t length) {
         // 从可换出链表移除，并取消映射，避免悬挂
         remove_swappable_page(current_running->pgdir, page_va);
         *pte = 0;
+
+        // Memory barrier to ensure PTE update is visible to all cores
+        __asm__ volatile("fence rw,rw" ::: "memory");
+
+        // Local TLB flush - other cores will fault and refill if needed
         local_flush_tlb_page(page_va);
 
         // Add to pipe
@@ -958,8 +1015,8 @@ long do_pipe_take_pages(int pipe_idx, void *dst, size_t length) {
         // 如页面已被换出，先换回物理页
         if (page->pa == 0 && page->swapped && page->swap_idx >= 0) {
             ptr_t new_page = allocPage(1);
-            if (new_page == 0) {
-                if (swap_out_page() >= 0) {
+            for (int attempt = 0; attempt < 4 && new_page == 0; attempt++) {
+                if (swap_out_page() >= 0 || swap_out_pipe_page() >= 0) {
                     new_page = allocPage(1);
                 }
             }
@@ -1004,7 +1061,10 @@ long do_pipe_take_pages(int pipe_idx, void *dst, size_t length) {
             set_attribute(pte, _PAGE_PRESENT | _PAGE_READ | _PAGE_WRITE | _PAGE_USER |
                                  _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_SWAPPABLE);
 
-            // Flush TLB for this page
+            // Memory barrier to ensure PTE update is visible to all cores
+            __asm__ volatile("fence rw,rw" ::: "memory");
+
+            // Local TLB flush - other cores will fault and refill if needed
             local_flush_tlb_page(dst_page_va);
 
             // 新映射加入可换出链表

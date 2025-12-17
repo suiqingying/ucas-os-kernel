@@ -1,4 +1,5 @@
 #include <asm/biosdef.h>
+#include <csr.h>
 
 // os size location
 .equ os_size_loc, 0x502001fc
@@ -58,9 +59,20 @@ wait_for_kernel:
 
     // 执行 fence.i，刷新自己的 I-Cache，防止读到旧的垃圾指令
     fence.i
+	
+	// 全局关中断(call disable_interrupt)
+	li t0, SR_SIE
+  	csrc CSR_SSTATUS, t0
 
-	// 3. 安全跳转到内核
-	jal kernel
+	// 将stvec指向kernel main	
+	la t0, kernel
+	csrw stvec, t0
+	// 允许软件中断
+	li t0, SIE_SSIE
+	csrs sie, t0		// 开启sie寄存器中对应位
+	li t0, SR_SIE
+	csrs sstatus, t0	// 开启sstatus寄存器中对应位
+	 
 
 wait_for_wakeup:
 	wfi

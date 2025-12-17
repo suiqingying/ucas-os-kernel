@@ -25,7 +25,7 @@ void wakeup_other_hart()
 {
     printk("> [SMP] Hart 0 is waking up other harts...\n");
     // 通过修改屏障变量来“唤醒”正在自旋等待的从核
-    boot_barrier = 1;
+    send_ipi(NULL);
 }
 
 void smp_wait_for_boot()

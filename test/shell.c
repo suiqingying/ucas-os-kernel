@@ -32,7 +32,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#define SHELL_BEGIN 80
+#define SHELL_BEGIN 40
 #define MAX_ARG_NUM 16
 #define MAX_ARG_LEN 16
 #define MAX_BUFF_LEN 256
