@@ -6,10 +6,6 @@
 
 typedef void (*kernel_entry_t)(unsigned long);
 
-// [修改] 强制放入 .data 段，确保被加载且物理地址有效
-// 不要用 kva2pa 转换它，因为在 medany 模式下，PC 相对寻址得到的已经是物理地址
-static volatile int pgtable_init_done __attribute__((section(".data"))) = 0;
-
 /********* setup memory mapping ***********/
 static uintptr_t ARRTIBUTE_BOOTKERNEL alloc_page()
 {

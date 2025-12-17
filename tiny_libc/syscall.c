@@ -235,4 +235,16 @@ int sys_thread_join(pid_t tid, void **retval) {
 size_t sys_get_free_memory(void) {
     return invoke_syscall(SYSCALL_FREE_MEM, IGNORE, IGNORE, IGNORE, IGNORE, IGNORE);
 }
+
+int sys_net_send(void *txpacket, int length)
+{
+    /* TODO: [p5-task1] call invoke_syscall to implement sys_net_send */
+    return 0;
+}
+
+int sys_net_recv(void *rxbuffer, int pkt_num, int *pkt_lens)
+{
+    /* TODO: [p5-task2] call invoke_syscall to implement sys_net_recv */
+    return 0;
+}
 /************************************************************/

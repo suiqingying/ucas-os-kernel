@@ -29,6 +29,7 @@
 #include <pgtable.h>
 #include <type.h>
 #include <os/list.h>
+#include <pgtable.h>
 
 #define MAP_KERNEL 1
 #define MAP_USER 2
@@ -76,10 +77,6 @@ void mark_page_nonswappable(uintptr_t pgdir, uintptr_t va);
 
 // Memory statistics
 extern size_t get_free_memory();
-
-// TODO [P4-task4]:shm_page_get/dt */
-uintptr_t shm_page_get(int key);
-void shm_page_dt(uintptr_t addr);
 
 // Memory page pipe structure for Task 5
 #define MAX_PIPES 32

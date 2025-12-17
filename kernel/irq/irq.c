@@ -30,32 +30,14 @@ void handle_irq_timer(regs_context_t *regs, uint64_t stval, uint64_t scause) {
     do_scheduler();
 }
 
-void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause){
-    // 对齐到页边界
-    uintptr_t fault_va = stval & ~(PAGE_SIZE - 1);
-    
-    // Check if page is swapped out
-    uintptr_t pte_ptr = get_pteptr_of(fault_va, current_running->pgdir);
-    if (pte_ptr) {
-        PTE *pte = (PTE *)pte_ptr;
-        // Check if page is in swap (SOFT bit set, PRESENT bit clear)
-        if ((*pte & _PAGE_SOFT) && !(*pte & _PAGE_PRESENT)) {
-            // Extract swap index from PFN field (no truncation)
-            int swap_idx = (int)get_pfn(*pte);
-            swap_in_page(fault_va, current_running->pgdir, swap_idx);
-            local_flush_tlb_page(fault_va);
-            return;
-        }
-    }
-    
-    // 建立映射（alloc_page_helper会检查是否已存在）
-    alloc_page_helper(fault_va, current_running->pgdir);
-    
-    // 刷新TLB（只刷新这一页即可）
-    local_flush_tlb_page(fault_va);
+void handle_irq_ext(regs_context_t *regs, uint64_t stval, uint64_t scause)
+{
+    // TODO: [p5-task4] external interrupt handler.
+    // Note: plic_claim and plic_complete will be helpful ...
 }
 
-void init_exception() {
+void init_exception()
+{
     /* initialize exc_table */
     /* NOTE: handle_syscall, handle_other, etc.*/
     exc_table[EXCC_INST_MISALIGNED] = handle_other;
@@ -103,4 +85,29 @@ void handle_other(regs_context_t *regs, uint64_t stval, uint64_t scause) {
     printk("sepc: 0x%lx\n\r", regs->sepc);
     printk("tval: 0x%lx cause: 0x%lx\n", stval, scause);
     assert(0);
+}
+
+void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause){
+    // 对齐到页边界
+    uintptr_t fault_va = stval & ~(PAGE_SIZE - 1);
+    
+    // Check if page is swapped out
+    uintptr_t pte_ptr = get_pteptr_of(fault_va, current_running->pgdir);
+    if (pte_ptr) {
+        PTE *pte = (PTE *)pte_ptr;
+        // Check if page is in swap (SOFT bit set, PRESENT bit clear)
+        if ((*pte & _PAGE_SOFT) && !(*pte & _PAGE_PRESENT)) {
+            // Extract swap index from PFN field (no truncation)
+            int swap_idx = (int)get_pfn(*pte);
+            swap_in_page(fault_va, current_running->pgdir, swap_idx);
+            local_flush_tlb_page(fault_va);
+            return;
+        }
+    }
+    
+    // 建立映射（alloc_page_helper会检查是否已存在）
+    alloc_page_helper(fault_va, current_running->pgdir);
+    
+    // 刷新TLB（只刷新这一页即可）
+    local_flush_tlb_page(fault_va);
 }
