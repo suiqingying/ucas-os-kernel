@@ -7,6 +7,7 @@
 #include <os/ioremap.h>
 #include <os/irq.h>
 #include <os/kernel.h>
+#include <os/net.h>
 #include <os/loader.h>
 #include <os/lock.h>
 #include <os/mm.h>
@@ -20,6 +21,7 @@
 #include <screen.h>
 #include <sys/syscall.h>
 #include <type.h>
+#include <plic.h>
 extern void ret_from_exception();
 
 static void cancel_identity_mapping(void) {
@@ -189,6 +191,8 @@ static void init_syscall(void) {
     syscall[SYSCALL_THREAD_CREATE] = (long (*)())do_thread_create;
     syscall[SYSCALL_THREAD_EXIT] = (long (*)())do_thread_exit;
     syscall[SYSCALL_THREAD_JOIN] = (long (*)())do_thread_join;
+    syscall[SYSCALL_NET_SEND] = (long (*)())do_net_send;
+    syscall[SYSCALL_NET_RECV] = (long (*)())do_net_recv;
 }
 /************************************************************/
 
@@ -205,7 +209,7 @@ int main() {
         init_task_info();
         // Read Flatten Device Tree (｡•ᴗ-)_
         time_base = bios_read_fdt(TIMEBASE);
-        e1000 = (volatile uint8_t *)bios_read_fdt(EHTERNET_ADDR);
+        e1000 = (volatile uint8_t *)bios_read_fdt(ETHERNET_ADDR);
         uint64_t plic_addr = bios_read_fdt(PLIC_ADDR);
         uint32_t nr_irqs = (uint32_t)bios_read_fdt(NR_IRQS);
         printk("> [INIT] e1000: %lx, plic_addr: %lx, nr_irqs: %lx.\n", e1000, plic_addr, nr_irqs);
@@ -214,9 +218,10 @@ int main() {
         plic_addr = (uintptr_t)ioremap((uint64_t)plic_addr, 0x4000 * NORMAL_PAGE_SIZE);
         e1000 = (uint8_t *)ioremap((uint64_t)e1000, 8 * NORMAL_PAGE_SIZE);
         printk("> [INIT] IOremap initialization succeeded.\n");
-
-        // Read CPU frequency (｡•ᴗ-)_
-        time_base = bios_read_fdt(TIMEBASE);
+        
+        // Init network device
+        e1000_init();
+        printk("> [INIT] E1000 device initialized successfully.\n");
 
         init_pcb();        // Init Process Control Blocks |•'-'•) ✧
         init_locks();      // Init lock mechanism o(´^｀)o
@@ -256,26 +261,11 @@ int main() {
     /****************************************************************/
     /*                   启动第一个进程并进入调度                     */
     /****************************************************************/
-    // TODO: [p5-task4] Init plic
-    // plic_init(plic_addr, nr_irqs);
-    // printk("> [INIT] PLIC initialized successfully. addr = 0x%lx, nr_irqs=0x%x\n", plic_addr, nr_irqs);
-
-    // Init network device
-    e1000_init();
-    printk("> [INIT] E1000 device initialized successfully.\n");
-
-    // Init system call table (0_0)
-    init_syscall();
-    printk("> [INIT] System call initialized successfully.\n");
-
-    // Init screen (QAQ)
-    init_screen();
-    printk("> [INIT] SCREEN initialization succeeded.\n");
-
-    // TODO: [p2-task4] Setup timer interrupt and enable all interrupt globally
-    // NOTE: The function of sstatus.sie is different from sie's
-
+    
     if (hartid == 0) {
+        // TODO: [p5-task4] Init plic
+        // plic_init(plic_addr, nr_irqs);
+        // printk("> [INIT] PLIC initialized successfully. addr = 0x%lx, nr_irqs=0x%x\n", plic_addr, nr_irqs);
         do_exec("shell", 0, NULL);
         printk("> [INIT] Shell task started on Hart 0.\n");
     }
@@ -284,10 +274,6 @@ int main() {
     unlock_kernel();
 
     enable_preempt();
-
-    /****************************************************************/
-    /*                   启动第一个进程并进入调度                     */
-    /****************************************************************/
 
     // Infinite while loop, where CPU stays in a low-power state (QAQQQQQQQQQQQ)
     while (1) {

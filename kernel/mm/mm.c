@@ -403,17 +403,6 @@ void swap_in_page(uintptr_t va, uintptr_t pgdir, int swap_idx) {
 }
 
 ptr_t allocPage(int numPage) {
-    // Debug: Always print allocation info
-#if ENABLE_ALLOC_DEBUG
-    static int alloc_count = 0;
-    alloc_count++;
-    if (alloc_count > 57340) {
-        printk("[ALLOC] alloc_count=%d, requested=%d, allocated=%d/%d (%d KB), kernMemCurr=0x%lx\n",
-               alloc_count, numPage, total_allocated_pages, TOTAL_PHYSICAL_PAGES,
-               total_allocated_pages * (PAGE_SIZE / 1024), kernMemCurr);
-    }
-#endif
-
     if (numPage == 1) {
         ptr_t ret = alloc_from_free_list();
         if (ret != 0) {
