@@ -20,6 +20,7 @@ static char rx_pkt_buffer[RXDESCS][RX_PKT_SIZE];
 static const uint8_t enetaddr[6] = {0x00, 0x0a, 0x35, 0x00, 0x1e, 0x53};
 
 static uint32_t tx_tail;
+static uint32_t rx_tail;
 
 /**
  * e1000_reset - Reset Tx and Rx Units; mask and clear all interrupts.
@@ -92,15 +93,41 @@ static void e1000_configure_tx(void) {
  * e1000_configure_rx - Configure 8254x Receive Unit after Reset
  **/
 static void e1000_configure_rx(void) {
-    /* TODO: [p5-task2] Set e1000 MAC Address to RAR[0] */
+    /*  Set e1000 MAC Address to RAR[0] */
+    uint32_t ral = (uint32_t)enetaddr[0] | ((uint32_t)enetaddr[1] << 8) |
+                   ((uint32_t)enetaddr[2] << 16) |
+                   ((uint32_t)enetaddr[3] << 24);
+    uint32_t rah = (uint32_t)enetaddr[4] | ((uint32_t)enetaddr[5] << 8) |
+                   E1000_RAH_AV;
+    e1000_write_reg_array(e1000, E1000_RA, 0, ral);
+    e1000_write_reg_array(e1000, E1000_RA, 1, rah);
 
-    /* TODO: [p5-task2] Initialize rx descriptors */
+    /* Initialize rx descriptors */
+    for (int i = 0; i < RXDESCS; i++) {
+        rx_desc_array[i].addr = kva2pa((uintptr_t)rx_pkt_buffer[i]);
+        rx_desc_array[i].length = 0;
+        rx_desc_array[i].csum = 0;
+        rx_desc_array[i].status = 0;
+        rx_desc_array[i].errors = 0;
+        rx_desc_array[i].special = 0;
+    }
+    local_flush_dcache();
 
-    /* TODO: [p5-task2] Set up the Rx descriptor base address and length */
+    /* Set up the Rx descriptor base address and length */
+    uintptr_t rx_desc_pa = kva2pa((uintptr_t)rx_desc_array);
+    e1000_write_reg(e1000, E1000_RDBAL, (uint32_t)rx_desc_pa);
+    e1000_write_reg(e1000, E1000_RDBAH, (uint32_t)(rx_desc_pa >> 32));
+    e1000_write_reg(e1000, E1000_RDLEN, (uint32_t)(RXDESCS * sizeof(struct e1000_rx_desc)));
 
-    /* TODO: [p5-task2] Set up the HW Rx Head and Tail descriptor pointers */
+    /* Set up the HW Rx Head and Tail descriptor pointers */
+    rx_tail = RXDESCS - 1;
+    e1000_write_reg(e1000, E1000_RDH, 0);
+    e1000_write_reg(e1000, E1000_RDT, rx_tail);
 
-    /* TODO: [p5-task2] Program the Receive Control Register */
+    /* Program the Receive Control Register */
+    uint32_t rctl = E1000_RCTL_EN | E1000_RCTL_BAM | E1000_RCTL_SZ_2048 |
+                    E1000_RCTL_RDMTS_HALF;
+    e1000_write_reg(e1000, E1000_RCTL, rctl);
 
     /* TODO: [p5-task4] Enable RXDMT0 Interrupt */
 }
@@ -159,7 +186,27 @@ int e1000_transmit(void *txpacket, int length) {
  * @return - Length of received packet
  **/
 int e1000_poll(void *rxbuffer) {
-    /* TODO: [p5-task2] Receive one packet and put it into rxbuffer */
+    /* Receive one packet and put it into rxbuffer */
+    uint32_t next = (rx_tail + 1) % RXDESCS;
+    struct e1000_rx_desc *desc = &rx_desc_array[next];
+    if ((desc->status & E1000_RXD_STAT_DD) == 0) {
+        return 0;
+    }
 
-    return 0;
+    int rx_len = desc->length;
+    if (rx_len > RX_PKT_SIZE) {
+        rx_len = RX_PKT_SIZE;
+    }
+    memcpy((uint8_t *)rxbuffer, (const uint8_t *)rx_pkt_buffer[next],
+           (uint32_t)rx_len);
+
+    desc->status = 0;
+    desc->length = 0;
+    desc->errors = 0;
+    local_flush_dcache();
+
+    rx_tail = next;
+    e1000_write_reg(e1000, E1000_RDT, rx_tail);
+
+    return rx_len;
 }

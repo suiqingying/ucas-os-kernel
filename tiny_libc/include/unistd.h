@@ -57,7 +57,7 @@ void sys_mbox_close(int mbox_id);
 int sys_mbox_send(int mbox_idx, void *msg, int msg_length);
 int sys_mbox_recv(int mbox_idx, void *msg, int msg_length);
 
-/* TODO: [P5-task5] net send and recv */
+/* net send and recv */
 int sys_net_send(void *txpacket, int length);
 int sys_net_recv(void *rxbuffer, int pkt_num, int *pkt_lens);
 /************************************************************/
