@@ -443,22 +443,22 @@ int do_waitpid(pid_t pid) {
 
 void do_process_show() {
     static char *stat_str[3] = {"BLOCKED", "RUNNING", "READY"};
-    printk("[Process Table]:\n");
+    printu("[Process Table]:\n");
     for (int i = 0; i < NUM_MAX_TASK; i++) {
         if (pcb[i].status != TASK_EXITED) {
             const char *role = (pcb[i].tgid == pcb[i].pid) ? "PROC" : "THRD";
             int proc_id = (pcb[i].tgid >= 0) ? pcb[i].tgid : pcb[i].pid;
-            printk("[%d] %s PROC:%d TID:%d STATUS:%s MASK:0x%x",
+            printu("[%d] %s PROC:%d TID:%d STATUS:%s MASK:0x%x",
                    i, role, proc_id, pcb[i].pid, stat_str[pcb[i].status], pcb[i].mask);
 
             if (pcb[i].status == TASK_RUNNING) {
                 if (pcb[i].pid == current_running->pid) {
-                    printk(" [ON CORE %d]", get_current_cpu_id());
+                    printu(" [ON CORE %d]", get_current_cpu_id());
                 } else {
-                    printk(" [ON CORE %d]", 1 - get_current_cpu_id());
+                    printu(" [ON CORE %d]", 1 - get_current_cpu_id());
                 }
             }
-            printk("\n");
+            printu("\n");
         }
     }
 }

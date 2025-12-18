@@ -53,11 +53,11 @@ uint64_t load_task_img(char *task_name, uintptr_t pgdir) {
 }
 
 void do_list() {
-    printk("User programs:\n");
+    printu("User programs:\n");
     for (int i = 0; i < TASK_MAXNUM; i++) {
         if (strlen(tasks[i].task_name) > 0) {
-            printk("%s ", tasks[i].task_name);
+            printu("%s ", tasks[i].task_name);
         }
     }
-    printk("\n");
+    printu("\n");
 }

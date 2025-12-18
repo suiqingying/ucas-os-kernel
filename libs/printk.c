@@ -280,6 +280,12 @@ static void _output_wrapper(char *buff)
     screen_reflush();
 }
 
+static void _output_user_wrapper(char *buff)
+{
+    screen_write(buff);
+    screen_reflush();
+}
+
 int vprintk(const char *fmt, va_list _va)
 {
     return _vprint(fmt, _va, _output_wrapper);
@@ -292,6 +298,18 @@ int printk(const char *fmt, ...)
 
     va_start(va, fmt);
     ret = vprintk(fmt, va);
+    va_end(va);
+
+    return ret;
+}
+
+int printu(const char *fmt, ...)
+{
+    int ret = 0;
+    va_list va;
+
+    va_start(va, fmt);
+    ret = _vprint(fmt, va, _output_user_wrapper);
     va_end(va);
 
     return ret;
