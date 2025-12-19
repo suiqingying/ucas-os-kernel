@@ -3,6 +3,10 @@
   <h3>个人实现与学习笔记</h3>
   
   <p>
+    <a href="https://suiqingying.github.io/ucas-os-kernel/"><img alt="Static Page" src="https://img.shields.io/badge/Visit-Project%20Website-FF4500?style=for-the-badge&logo=google-chrome&logoColor=white" /></a>
+  </p>
+
+  <p>
     <img src="https://img.shields.io/badge/Architecture-RISC--V-black?style=for-the-badge&logo=riscv" alt="RISC-V" />
     <img src="https://img.shields.io/badge/Language-C%20%2F%20Assembly-blue?style=for-the-badge&logo=c" alt="Language" />
     <img src="https://img.shields.io/badge/Status-Course%20Completed-success?style=for-the-badge" alt="Status" />
