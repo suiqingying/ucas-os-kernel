@@ -36,34 +36,6 @@
   <p><i>架构概览：按 Project0-6 划分的知识与实现模块</i></p>
 </div>
 
-```mermaid
-flowchart LR
-  subgraph HW["硬件 / QEMU"]
-    NIC["E1000 NIC"]
-    SD["SD"]
-    CPU["RISC-V CPU"]
-  end
-  subgraph K["Kernel (S-mode)"]
-    TRAP["trap/irq"]
-    SCHED["scheduler & sync"]
-    VM["Sv39 / page fault / swap"]
-    DRV["drivers"]
-    NET["net (reliable recv)"]
-  end
-  subgraph U["User"]
-    SHELL["shell & tests"]
-  end
-
-  CPU --> TRAP
-  SHELL --> TRAP
-  TRAP --> SCHED
-  TRAP --> VM
-  DRV --> NIC
-  DRV --> SD
-  NET --> DRV
-  SCHED --> SHELL
-```
-
 ---
 
 ## 项目分支
