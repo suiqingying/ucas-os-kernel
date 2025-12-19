@@ -1,18 +1,12 @@
 <div align="center">
+  <img src="./banner.svg" width="100%" alt="UCAS OS Kernel banner" />
+</div>
 
-# UCAS OS Kernel
-
-按项目分支组织的 RISC-V 教学内核仓库：引导、调度、系统调用、虚拟内存、驱动与网络实验。
-
-[![RISC-V](https://img.shields.io/badge/Arch-RISC--V-2d2d2d)](#)
-[![Sv39](https://img.shields.io/badge/VM-Sv39-2d2d2d)](#)
-[![E1000](https://img.shields.io/badge/Driver-E1000-2d2d2d)](#)
-[![Course](https://img.shields.io/badge/Course-UCAS%20OS%20Lab-2d2d2d)](#)
-
-<a href="../../tree/Prj1">从 Prj1 开始</a>
-· <a href="../../tree/main">查看 main</a>
-· <a href="#项目分支">项目分支</a>
-
+<div align="center">
+  <a href="../../tree/Prj1"><img alt="Start Prj1" src="https://img.shields.io/badge/Start-Prj1-7C3AED?style=for-the-badge" /></a>
+  <a href="../../tree/Prj4"><img alt="VM Prj4" src="https://img.shields.io/badge/Virtual%20Memory-Prj4-22D3EE?style=for-the-badge" /></a>
+  <a href="../../tree/Prj5"><img alt="Net Prj5" src="https://img.shields.io/badge/Driver%20%26%20Network-Prj5-34D399?style=for-the-badge" /></a>
+  <a href="../../tree/main"><img alt="Main" src="https://img.shields.io/badge/Current-main-111827?style=for-the-badge" /></a>
 </div>
 
 ---
@@ -31,6 +25,34 @@
     <td width="25%"><b>Drivers & Net</b><br/>E1000、收发/中断、可靠传输实验。</td>
   </tr>
 </table>
+
+```mermaid
+flowchart LR
+  subgraph HW["硬件 / QEMU"]
+    NIC["E1000 NIC"]
+    SD["SD"]
+    CPU["RISC-V CPU"]
+  end
+  subgraph K["Kernel (S-mode)"]
+    TRAP["trap/irq"]
+    SCHED["scheduler & sync"]
+    VM["Sv39 / page fault / swap"]
+    DRV["drivers"]
+    NET["net (reliable recv)"]
+  end
+  subgraph U["User"]
+    SHELL["shell & tests"]
+  end
+
+  CPU --> TRAP
+  SHELL --> TRAP
+  TRAP --> SCHED
+  TRAP --> VM
+  DRV --> NIC
+  DRV --> SD
+  NET --> DRV
+  SCHED --> SHELL
+```
 
 ---
 
