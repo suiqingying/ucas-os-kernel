@@ -172,3 +172,82 @@ exec recv2 -n72 -l80 -c &
 - `RAH0` 的 Address Valid 位没置：只会看到广播，单播包收不到。
 - `RDT` 初始值错误：设置为 `RXDESCS - 1` 才能把整圈描述符交给硬件。
 - 描述符/缓冲区地址：给硬件的一律是物理地址（需要 `kva2pa/va2pa`）。
+
+## 五、任务三：中断（Task 3）
+
+Task 3 的目标是把忙轮询改为“中断触发 + 进程阻塞”，让 CPU 在设备未就绪时调度其他任务。
+
+### 1. 外部中断的四级路径
+
+1) 硬件与 stvec
+- 网卡向 PLIC 发中断，PLIC 仲裁后通知 CPU
+- CPU 跳转到 stvec（exception_handler）
+
+2) scause 判定
+- scause == IRQ_S_EXT 进入外部中断处理
+
+3) PLIC claim
+- 读取 claim 得到中断源 ID（QEMU 通常为 33）
+
+4) E1000 ICR 原因位
+- TXQE：发送队列空（TDH == TDT），表示可继续发
+- RXDMT0：可用接收描述符低于阈值（RCTL.RXDMT=0 表示 1/2）
+
+### 2. 中断寄存器组
+
+- ICR：读清零，处理中断时必须先读
+- IMS：写 1 使能
+- IMC：写 1 禁用
+- ICS：软件触发（调试用）
+
+### 3. 从轮询到阻塞的代码改造
+
+发送：队列满时阻塞，等待 TXQE 唤醒
+```c
+while (!(tx_desc[tail].status & DD)) {
+    do_block(&send_wait_queue);
+}
+```
+
+接收：无包时阻塞，等待 RXDMT0 唤醒
+```c
+while (!(rx_desc[head].status & DD)) {
+    do_block(&recv_wait_queue);
+}
+```
+
+### 4. 实现步骤清单
+
+1) `e1000_init`：开启 IMS 中的 TXQE 和 RXDMT0；设置 `RCTL.RXDMT = 0`
+2) `kernel/irq/irq.c`：外部中断里 `plic_claim`，识别网卡 ID 后调用 `e1000_handle_irq`
+3) `drivers/e1000.c`：读取 ICR，按位分别唤醒 send/recv 队列
+4) `plic_complete(irq_id)`：必须调用，避免只触发一次
+
+### 5. 避坑清单
+
+- 操作等待队列前注意原子性，否则会丢唤醒
+- ICR 读清零，非中断处理处不要随意读
+- 忘记 `plic_complete` 会导致只收到一次外部中断
+
+### 6. 终端卡死 Bug 的调试过程与修复
+
+现象：
+- `exec recv &` 后发送包，终端无输出且无法输入
+- e1000 收到包但系统“像死机”
+
+关键定位过程：
+1) 在 `drivers/e1000.c` 的接收拷贝处打点，出现
+   - `copy enter` 但没有任何后续字节拷贝日志
+2) 查看 `rxbuffer` 页表项，P/W/U 都为 1，说明映射存在且可写
+3) 结论：不是页表映射问题，而是内核态访问用户页被禁止
+
+根因：
+- 内核态写用户缓冲触发异常（SUM=0），进入异常后再次尝试获取内核大锁导致死锁
+
+修复：
+- 在 `arch/riscv/kernel/head.S` 中设置 `SR_SUM`，允许 S 态访问用户页
+  ```asm
+  li t0, SR_SUM
+  csrs CSR_SSTATUS, t0
+  ```
+- 修复后 `e1000_poll` 的用户缓冲拷贝不再触发异常，终端恢复正常

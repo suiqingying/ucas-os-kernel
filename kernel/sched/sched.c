@@ -28,8 +28,6 @@ void do_scheduler(void) {
     check_sleeping();
 
     /************************************************************/
-    // TODO: [p5-task3] Check send/recv queue to unblock PCBs
-    /************************************************************/
 
     // Modify the current_running pointer.
     pcb_t *prior_running = current_running;

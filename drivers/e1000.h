@@ -439,5 +439,8 @@ extern volatile uint8_t *e1000;
 void e1000_init(void);
 int e1000_transmit(void *txpacket, int length);
 int e1000_poll(void *rxbuffer);
+void e1000_handle_txqe(void);
+void e1000_handle_rxdmt0(void);
+void e1000_handle_irq(void);
 
 #endif  // !_E1000_HW_H_

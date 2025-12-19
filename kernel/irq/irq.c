@@ -1,12 +1,14 @@
 #include <assert.h>
 #include <os/irq.h>
 #include <os/kernel.h>
+#include <os/mm.h>
+#include <os/net.h>
 #include <os/sched.h>
 #include <os/string.h>
 #include <os/time.h>
+#include <plic.h>
 #include <printk.h>
 #include <screen.h>
-#include <os/mm.h>
 #define SCAUSE_IRQ_MASK 0x8000000000000000
 
 handler_t irq_table[IRQC_COUNT];
@@ -30,14 +32,18 @@ void handle_irq_timer(regs_context_t *regs, uint64_t stval, uint64_t scause) {
     do_scheduler();
 }
 
-void handle_irq_ext(regs_context_t *regs, uint64_t stval, uint64_t scause)
-{
-    // TODO: [p5-task4] external interrupt handler.
+void handle_irq_ext(regs_context_t *regs, uint64_t stval, uint64_t scause) {
+    // external interrupt handler.
     // Note: plic_claim and plic_complete will be helpful ...
+    int hwirq = (int)plic_claim();
+    if (hwirq == 0) return;
+    if (hwirq == PLIC_E1000_QEMU_IRQ || hwirq == PLIC_E1000_PYNQ_IRQ) {
+        net_handle_irq();
+    }
+    plic_complete(hwirq);
 }
 
-void init_exception()
-{
+void init_exception() {
     /* initialize exc_table */
     /* NOTE: handle_syscall, handle_other, etc.*/
     exc_table[EXCC_INST_MISALIGNED] = handle_other;
@@ -58,7 +64,7 @@ void init_exception()
     irq_table[IRQC_S_TIMER] = handle_irq_timer;
     irq_table[IRQC_M_TIMER] = handle_other;
     irq_table[IRQC_U_EXT] = handle_other;
-    irq_table[IRQC_S_EXT] = handle_other;
+    irq_table[IRQC_S_EXT] = handle_irq_ext;
     irq_table[IRQC_M_EXT] = handle_other;
 
     /* set up the entrypoint of exceptions */
@@ -87,7 +93,7 @@ void handle_other(regs_context_t *regs, uint64_t stval, uint64_t scause) {
     assert(0);
 }
 
-void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause){
+void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause) {
     // 对齐到页边界
     uintptr_t fault_va = stval & ~(PAGE_SIZE - 1);
     
@@ -104,7 +110,7 @@ void handle_page_fault(regs_context_t *regs, uint64_t stval, uint64_t scause){
             return;
         }
     }
-    
+
     // 建立映射（alloc_page_helper会检查是否已存在）
     alloc_page_helper(fault_va, current_running->pgdir);
     

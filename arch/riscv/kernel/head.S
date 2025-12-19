@@ -15,6 +15,9 @@ ENTRY(_start)
   csrw CSR_SIE, zero
   csrw CSR_SIP, zero
 
+  li t0, SR_SUM
+  csrs CSR_SSTATUS, t0
+
   /* Read hart id. This will be the first argument to main(hartid). */
   csrr a0, CSR_MHARTID
   

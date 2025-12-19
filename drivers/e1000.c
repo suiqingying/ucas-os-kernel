@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <e1000.h>
+#include <os/net.h>
 #include <os/string.h>
 #include <os/time.h>
 #include <pgtable.h>
@@ -129,7 +130,8 @@ static void e1000_configure_rx(void) {
                     E1000_RCTL_RDMTS_HALF;
     e1000_write_reg(e1000, E1000_RCTL, rctl);
 
-    /* TODO: [p5-task4] Enable RXDMT0 Interrupt */
+    /* Enable RXDMT0 Interrupt */
+    e1000_write_reg(e1000, E1000_IMS, E1000_IMS_RXDMT0);
 }
 
 /**
@@ -209,4 +211,24 @@ int e1000_poll(void *rxbuffer) {
     e1000_write_reg(e1000, E1000_RDT, rx_tail);
 
     return rx_len;
+}
+
+void e1000_handle_txqe(void) {
+    /* Disable TXQE to avoid interrupt storm when queue stays empty. */
+    e1000_write_reg(e1000, E1000_IMC, E1000_IMC_TXQE);
+    net_unblock_send();
+}
+
+void e1000_handle_rxdmt0(void) {
+    net_unblock_recv();
+}
+
+void e1000_handle_irq(void) {
+    uint32_t icr = e1000_read_reg(e1000, E1000_ICR);
+    if (icr & E1000_ICR_TXQE) {
+        e1000_handle_txqe();
+    }
+    if (icr & E1000_ICR_RXDMT0) {
+        e1000_handle_rxdmt0();
+    }
 }

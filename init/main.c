@@ -40,6 +40,8 @@ task_info_t tasks[TASK_MAXNUM];
 // A simple barrier for core synchronization
 volatile int boot_barrier = 0;
 volatile int boot_cnt = 0;
+uint64_t plic_addr = 0;
+uint32_t nr_irqs = 0;
 
 static void init_jmptab(void) {
     volatile long (*(*jmptab))() = (volatile long (*(*))())KERNEL_JMPTAB_BASE;
@@ -210,8 +212,8 @@ int main() {
         // Read Flatten Device Tree (｡•ᴗ-)_
         time_base = bios_read_fdt(TIMEBASE);
         e1000 = (volatile uint8_t *)bios_read_fdt(ETHERNET_ADDR);
-        uint64_t plic_addr = bios_read_fdt(PLIC_ADDR);
-        uint32_t nr_irqs = (uint32_t)bios_read_fdt(NR_IRQS);
+        plic_addr = bios_read_fdt(PLIC_ADDR);
+        nr_irqs = (uint32_t)bios_read_fdt(NR_IRQS);
         printk("> [INIT] e1000: %lx, plic_addr: %lx, nr_irqs: %lx.\n", e1000, plic_addr, nr_irqs);
 
         // IOremap
@@ -263,9 +265,9 @@ int main() {
     /****************************************************************/
     
     if (hartid == 0) {
-        // TODO: [p5-task4] Init plic
-        // plic_init(plic_addr, nr_irqs);
-        // printk("> [INIT] PLIC initialized successfully. addr = 0x%lx, nr_irqs=0x%x\n", plic_addr, nr_irqs);
+        // Init plic
+        plic_init(plic_addr, nr_irqs);
+        printk("> [INIT] PLIC initialized successfully. addr = 0x%lx, nr_irqs=0x%x\n", plic_addr, nr_irqs);
         do_exec("shell", 0, NULL);
         printk("> [INIT] Shell task started on Hart 0.\n");
     }

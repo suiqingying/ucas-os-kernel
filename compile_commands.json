@@ -211,6 +211,50 @@
       "-Idrivers",
       "-o",
       "build/main",
+      "./drivers/e1000.c"
+    ],
+    "directory": "/home/stu/ucas-os-kernel",
+    "file": "/home/stu/ucas-os-kernel/drivers/e1000.c",
+    "output": "/home/stu/ucas-os-kernel/build/main"
+  },
+  {
+    "arguments": [
+      "/opt/riscv64-linux/bin/riscv64-unknown-linux-gnu-gcc",
+      "-c",
+      "-O0",
+      "-std=gnu11",
+      "-fno-builtin",
+      "-nostdinc",
+      "-Wall",
+      "-mcmodel=medany",
+      "-ggdb3",
+      "-I./arch/riscv/include",
+      "-Iinclude",
+      "-Idrivers",
+      "-o",
+      "build/main",
+      "./drivers/plic.c"
+    ],
+    "directory": "/home/stu/ucas-os-kernel",
+    "file": "/home/stu/ucas-os-kernel/drivers/plic.c",
+    "output": "/home/stu/ucas-os-kernel/build/main"
+  },
+  {
+    "arguments": [
+      "/opt/riscv64-linux/bin/riscv64-unknown-linux-gnu-gcc",
+      "-c",
+      "-O0",
+      "-std=gnu11",
+      "-fno-builtin",
+      "-nostdinc",
+      "-Wall",
+      "-mcmodel=medany",
+      "-ggdb3",
+      "-I./arch/riscv/include",
+      "-Iinclude",
+      "-Idrivers",
+      "-o",
+      "build/main",
       "./drivers/screen.c"
     ],
     "directory": "/home/stu/ucas-os-kernel",
@@ -299,10 +343,54 @@
       "-Idrivers",
       "-o",
       "build/main",
+      "./kernel/mm/ioremap.c"
+    ],
+    "directory": "/home/stu/ucas-os-kernel",
+    "file": "/home/stu/ucas-os-kernel/kernel/mm/ioremap.c",
+    "output": "/home/stu/ucas-os-kernel/build/main"
+  },
+  {
+    "arguments": [
+      "/opt/riscv64-linux/bin/riscv64-unknown-linux-gnu-gcc",
+      "-c",
+      "-O0",
+      "-std=gnu11",
+      "-fno-builtin",
+      "-nostdinc",
+      "-Wall",
+      "-mcmodel=medany",
+      "-ggdb3",
+      "-I./arch/riscv/include",
+      "-Iinclude",
+      "-Idrivers",
+      "-o",
+      "build/main",
       "./kernel/mm/mm.c"
     ],
     "directory": "/home/stu/ucas-os-kernel",
     "file": "/home/stu/ucas-os-kernel/kernel/mm/mm.c",
+    "output": "/home/stu/ucas-os-kernel/build/main"
+  },
+  {
+    "arguments": [
+      "/opt/riscv64-linux/bin/riscv64-unknown-linux-gnu-gcc",
+      "-c",
+      "-O0",
+      "-std=gnu11",
+      "-fno-builtin",
+      "-nostdinc",
+      "-Wall",
+      "-mcmodel=medany",
+      "-ggdb3",
+      "-I./arch/riscv/include",
+      "-Iinclude",
+      "-Idrivers",
+      "-o",
+      "build/main",
+      "./kernel/net/net.c"
+    ],
+    "directory": "/home/stu/ucas-os-kernel",
+    "file": "/home/stu/ucas-os-kernel/kernel/net/net.c",
     "output": "/home/stu/ucas-os-kernel/build/main"
   },
   {
@@ -530,26 +618,6 @@
       "-I./tiny_libc/include",
       "-c",
       "-o",
-      "build/pthread.o",
-      "tiny_libc/pthread.c"
-    ],
-    "directory": "/home/stu/ucas-os-kernel",
-    "file": "/home/stu/ucas-os-kernel/tiny_libc/pthread.c",
-    "output": "/home/stu/ucas-os-kernel/build/pthread.o"
-  },
-  {
-    "arguments": [
-      "/opt/riscv64-linux/bin/riscv64-unknown-linux-gnu-gcc",
-      "-O0",
-      "-std=gnu11",
-      "-fno-builtin",
-      "-nostdinc",
-      "-Wall",
-      "-mcmodel=medany",
-      "-ggdb3",
-      "-I./tiny_libc/include",
-      "-c",
-      "-o",
       "build/rand.o",
       "tiny_libc/rand.c"
     ],
@@ -674,10 +742,10 @@
       "./build/crt0.o",
       "-o",
       "build/fly",
-      "test/test_project4/fly.c"
+      "test/test_project5/fly.c"
     ],
     "directory": "/home/stu/ucas-os-kernel",
-    "file": "/home/stu/ucas-os-kernel/test/test_project4/fly.c",
+    "file": "/home/stu/ucas-os-kernel/test/test_project5/fly.c",
     "output": "/home/stu/ucas-os-kernel/build/fly"
   },
   {
@@ -694,12 +762,12 @@
       "-I./tiny_libc/include",
       "./build/crt0.o",
       "-o",
-      "build/ipc",
-      "test/test_project4/ipc.c"
+      "build/recv2",
+      "test/test_project5/recv2.c"
     ],
     "directory": "/home/stu/ucas-os-kernel",
-    "file": "/home/stu/ucas-os-kernel/test/test_project4/ipc.c",
-    "output": "/home/stu/ucas-os-kernel/build/ipc"
+    "file": "/home/stu/ucas-os-kernel/test/test_project5/recv2.c",
+    "output": "/home/stu/ucas-os-kernel/build/recv2"
   },
   {
     "arguments": [
@@ -715,12 +783,12 @@
       "-I./tiny_libc/include",
       "./build/crt0.o",
       "-o",
-      "build/lock",
-      "test/test_project4/lock.c"
+      "build/recv",
+      "test/test_project5/recv.c"
     ],
     "directory": "/home/stu/ucas-os-kernel",
-    "file": "/home/stu/ucas-os-kernel/test/test_project4/lock.c",
-    "output": "/home/stu/ucas-os-kernel/build/lock"
+    "file": "/home/stu/ucas-os-kernel/test/test_project5/recv.c",
+    "output": "/home/stu/ucas-os-kernel/build/recv"
   },
   {
     "arguments": [
@@ -736,54 +804,12 @@
       "-I./tiny_libc/include",
       "./build/crt0.o",
       "-o",
-      "build/mailbox",
-      "test/test_project4/mailbox.c"
+      "build/send",
+      "test/test_project5/send.c"
     ],
     "directory": "/home/stu/ucas-os-kernel",
-    "file": "/home/stu/ucas-os-kernel/test/test_project4/mailbox.c",
-    "output": "/home/stu/ucas-os-kernel/build/mailbox"
-  },
-  {
-    "arguments": [
-      "/opt/riscv64-linux/bin/riscv64-unknown-linux-gnu-gcc",
-      "-c",
-      "-O0",
-      "-std=gnu11",
-      "-fno-builtin",
-      "-nostdinc",
-      "-Wall",
-      "-mcmodel=medany",
-      "-ggdb3",
-      "-I./tiny_libc/include",
-      "./build/crt0.o",
-      "-o",
-      "build/pipe",
-      "test/test_project4/pipe.c"
-    ],
-    "directory": "/home/stu/ucas-os-kernel",
-    "file": "/home/stu/ucas-os-kernel/test/test_project4/pipe.c",
-    "output": "/home/stu/ucas-os-kernel/build/pipe"
-  },
-  {
-    "arguments": [
-      "/opt/riscv64-linux/bin/riscv64-unknown-linux-gnu-gcc",
-      "-c",
-      "-O0",
-      "-std=gnu11",
-      "-fno-builtin",
-      "-nostdinc",
-      "-Wall",
-      "-mcmodel=medany",
-      "-ggdb3",
-      "-I./tiny_libc/include",
-      "./build/crt0.o",
-      "-o",
-      "build/rw",
-      "test/test_project4/rw.c"
-    ],
-    "directory": "/home/stu/ucas-os-kernel",
-    "file": "/home/stu/ucas-os-kernel/test/test_project4/rw.c",
-    "output": "/home/stu/ucas-os-kernel/build/rw"
+    "file": "/home/stu/ucas-os-kernel/test/test_project5/send.c",
+    "output": "/home/stu/ucas-os-kernel/build/send"
   },
   {
     "arguments": [
