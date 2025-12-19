@@ -20,5 +20,7 @@ void net_unblock_send(void);
 void net_unblock_recv(void);
 int do_net_recv(void *rxbuffer, int pkt_num, int *pkt_lens);
 int do_net_send(void *txpacket, int length);
+int do_net_recv_stream(void *buffer, int *nbytes);
+void net_stream_timer(void);
 
 #endif  // __INCLUDE_NET_H__

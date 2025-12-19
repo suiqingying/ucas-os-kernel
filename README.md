@@ -251,3 +251,97 @@ while (!(rx_desc[head].status & DD)) {
   csrs CSR_SSTATUS, t0
   ```
 - 修复后 `e1000_poll` 的用户缓冲拷贝不再触发异常，终端恢复正常
+
+## 六、任务四：可靠传输（Task 4）
+
+任务四（C-core 任务）要求在不可靠的数据链路层之上，实现一个简化的传输层协议，以支持可靠的、顺序的文件或流数据传输。
+
+### 1. 协议概览
+
+本项目使用简化传输层协议，核心特点：
+- 无连接：不区分连接，所有包统一处理
+- 单向传输：发送方主动发起，接收方监听
+- 接收方驱动重传：由接收方发 RSD 触发重传
+- 无流量/拥塞控制：窗口大小为常数，不做动态调整
+
+### 2. 报文结构 (Packet Structure)
+
+协议起始位置位于数据帧第 55 个字节（前 54 字节为 TCP/IP 报头），报头 8 字节：
+- `magic`(1B)：固定 `0x45`
+- `flags`(1B)：DAT/ACK/RSD
+- `len`(2B)：数据部分长度（不含报头）
+- `seq`(4B)：数据包序号（字节偏移）
+
+注：文件传输时 `seq=0` 的 Data 前 4 字节存放文件大小（应用层逻辑，内核不使用）。
+
+### 3. 三种核心操作
+
+- DAT (Data)：发送方发送数据包，`seq` 为数据在流中的起始偏移
+- ACK (Acknowledgement)：接收方确认，`seq` 表示小于该值的数据已顺序到齐
+- RSD (Retransmission Request)：接收方请求重传，`seq` 为缺失包起始偏移
+
+### 4. 系统调用实现
+
+新增系统调用：
+`sys_net_recv_stream(void *buffer, int *nbytes)`
+
+- 接收最多 `*nbytes` 字节写入 `buffer`
+- 实际接收字节数写回 `*nbytes`
+- 需处理乱序与丢包，并基于定时机制触发 RSD
+
+### 5. 用户程序与校验
+
+用户程序接收大文件，计算 Fletcher 校验和并打印：
+```c
+uint16_t fletcher16(uint8_t *data, int n) {
+    uint16_t sum1 = 0;
+    uint16_t sum2 = 0;
+    int i;
+    for (i = 0; i < n; ++i) {
+        sum1 = (sum1 + data[i]) % 0xff;
+        sum2 = (sum2 + sum1) % 0xff;
+    }
+    return (sum2 << 8) | sum1;
+}
+```
+
+### 6. 注意事项与实现细节
+
+- 字节序：报头 `len/seq` 为网络字节序（大端）
+- 协议位置：固定从数据帧第 55 字节开始
+- 丢包模拟：pktRxTx 支持 SEND_RELIABLE + 丢包/乱序比例
+- 重传触发：乱序包缓存 + 定时 RSD
+- 发送方限制：ACK 不及时会导致窗口被占满
+- RSD 校验：pktRxTx 若打印 RSD with error，说明请求了无效或已 ACK 的 `seq`
+
+### 7. 调试记录与修复
+
+可靠接收无响应：
+- 现象：发送端超时，收不到 ACK/RSD
+- 根因：仅开启 RXDMT0，小流量不足以触发中断，接收线程阻塞
+- 修复：`drivers/e1000.c` 使能 RXT0 作为接收定时中断唤醒接收线程
+
+### 8. 测试方法（完整命令）
+
+OS 侧：
+```text
+exec recv_stream -f
+```
+
+Host 侧（发送大文件，支持丢包/乱序参数）：
+```bash
+cd /home/stu/ucas-os-kernel/tools/pkt-rx-tx-master/pktRxTx-Linux
+sudo ./pktRxTx -m 5 -f /home/stu/ucas-os-kernel/build/main -w 10000 -l 0 -s 0 -t 50
+```
+
+Host 侧校验：
+```bash
+python3 - <<'PY'
+data = open('/home/stu/ucas-os-kernel/build/main','rb').read()
+sum1 = 0; sum2 = 0
+for b in data:
+    sum1 = (sum1 + b) % 0xff
+    sum2 = (sum2 + sum1) % 0xff
+print(f"host fletcher16=0x{((sum2<<8)|sum1):04x}")
+PY
+```

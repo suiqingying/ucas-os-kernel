@@ -130,8 +130,8 @@ static void e1000_configure_rx(void) {
                     E1000_RCTL_RDMTS_HALF;
     e1000_write_reg(e1000, E1000_RCTL, rctl);
 
-    /* Enable RXDMT0 Interrupt */
-    e1000_write_reg(e1000, E1000_IMS, E1000_IMS_RXDMT0);
+    /* Enable RXDMT0 and RXT0 Interrupt */
+    e1000_write_reg(e1000, E1000_IMS, E1000_IMS_RXDMT0 | E1000_IMS_RXT0);
 }
 
 /**
@@ -229,6 +229,9 @@ void e1000_handle_irq(void) {
         e1000_handle_txqe();
     }
     if (icr & E1000_ICR_RXDMT0) {
+        e1000_handle_rxdmt0();
+    }
+    if (icr & E1000_ICR_RXT0) {
         e1000_handle_rxdmt0();
     }
 }

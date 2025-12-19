@@ -195,6 +195,7 @@ static void init_syscall(void) {
     syscall[SYSCALL_THREAD_JOIN] = (long (*)())do_thread_join;
     syscall[SYSCALL_NET_SEND] = (long (*)())do_net_send;
     syscall[SYSCALL_NET_RECV] = (long (*)())do_net_recv;
+    syscall[SYSCALL_NET_RECV_STREAM] = (long (*)())do_net_recv_stream;
 }
 /************************************************************/
 
