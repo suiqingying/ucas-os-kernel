@@ -4,21 +4,11 @@
   
   <p>
     <a href="https://suiqingying.github.io/ucas-os-kernel/"><img alt="Static Page" src="https://img.shields.io/badge/Visit-Project%20Website-FF4500?style=for-the-badge&logo=google-chrome&logoColor=white" /></a>
-  </p>
-
-  <p>
     <img src="https://img.shields.io/badge/Architecture-RISC--V-black?style=for-the-badge&logo=riscv" alt="RISC-V" />
-    <img src="https://img.shields.io/badge/Language-C%20%2F%20Assembly-blue?style=for-the-badge&logo=c" alt="Language" />
     <img src="https://img.shields.io/badge/Status-Course%20Completed-success?style=for-the-badge" alt="Status" />
   </p>
 
   <img src="./docs/assets/architecture_overview.png" width="80%" alt="UCAS-OS 操作系统架构概览" />
-
-  <p>
-    <a href="../../tree/Prj1"><img alt="Start Prj1" src="https://img.shields.io/badge/Start-Prj1-7C3AED?style=for-the-badge" /></a>
-    <a href="../../tree/Prj4"><img alt="VM Prj4" src="https://img.shields.io/badge/Virtual%20Memory-Prj4-22D3EE?style=for-the-badge" /></a>
-    <a href="../../tree/Prj5"><img alt="Net Prj5" src="https://img.shields.io/badge/Driver%20%26%20Network-Prj5-34D399?style=for-the-badge" /></a>
-  </p>
 
   <p>
     <b>🌟 如果这份代码救了你的头发，请反手点个 Star 予以慰问！🌟</b><br/>
