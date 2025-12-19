@@ -1,0 +1,25 @@
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vite
+dist/
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+# Note: We DO track docs/ because it's our GitHub Pages source
+# but we ignore other temporary build folders if any exist
+website/dist/
+
+# Project specific
+.vscode/
+.idea/
+*.swp
+*.swo
