@@ -34,142 +34,164 @@
 
 ## 目录结构（以 `Prj5` 为基准，可展开）
 
-<p>下面是一个“可点击/可伸缩”的目录树，帮助你快速定位：每个文件夹负责什么、应该从哪里开始读。</p>
-<p><b>说明：</b>这是以 <code>Prj5</code> 分支为基准整理的；其他分支可能会有增减。</p>
+<p>下面是一棵“可展开”的结构树：用来解释每个文件夹/模块的职责，以及它在整个系统里扮演的角色（不含超链接）。</p>
+<p><b>说明：</b>内容以 <code>Prj5</code> 的目录为基准；其他分支可能会有增减或重构。</p>
 
 <details open>
-  <summary><b>Prj5 目录树（点击展开/收起）</b></summary>
+  <summary><b>结构树（点击展开/收起）</b></summary>
 
   <ul>
     <li>
-      <details>
-        <summary><code>arch/</code> · 启动/陷入/CSR（RISC-V 相关） · <a href="../../tree/Prj5/arch">打开</a></summary>
+      <details open>
+        <summary><code>init/</code>：系统启动后，负责把各子系统初始化并串起来</summary>
         <ul>
-          <li><code>arch/riscv/boot/</code>：bootloader · <a href="../../blob/Prj5/arch/riscv/boot/bootblock.S">bootblock.S</a></li>
-          <li><code>arch/riscv/kernel/</code>：启动与陷入入口 · <a href="../../blob/Prj5/arch/riscv/kernel/trap.S">trap.S</a> · <a href="../../blob/Prj5/arch/riscv/kernel/entry.S">entry.S</a> · <a href="../../blob/Prj5/arch/riscv/kernel/head.S">head.S</a></li>
-          <li><code>arch/riscv/include/</code>：CSR/页表/原子等公共定义 · <a href="../../blob/Prj5/arch/riscv/include/csr.h">csr.h</a> · <a href="../../blob/Prj5/arch/riscv/include/pgtable.h">pgtable.h</a></li>
+          <li>典型入口：<code>init/main.c</code></li>
+          <li>你可以把它理解为“内核的 main()”：决定先初始化什么，再启动什么。</li>
         </ul>
       </details>
     </li>
 
     <li>
       <details>
-        <summary><code>kernel/</code> · 内核核心子系统 · <a href="../../tree/Prj5/kernel">打开</a></summary>
+        <summary><code>arch/</code>：RISC-V 架构相关（启动、陷入、CSR、页表基础）</summary>
+        <ul>
+          <li><code>arch/riscv/boot/</code>：引导与加载阶段（bootloader 相关）</li>
+          <li><code>arch/riscv/kernel/</code>：早期启动、陷入入口（trap/entry/head 等汇编）</li>
+          <li><code>arch/riscv/include/</code>：CSR / 页表 / 原子操作等公共定义</li>
+        </ul>
+      </details>
+    </li>
+
+    <li>
+      <details>
+        <summary><code>kernel/</code>：内核核心子系统（“操作系统能力”主要在这里）</summary>
         <ul>
           <li>
             <details>
-              <summary><code>kernel/irq/</code>：异常/中断分发 · <a href="../../blob/Prj5/kernel/irq/irq.c">irq.c</a></summary>
+              <summary><code>kernel/irq/</code>：异常/中断分发（从 trap 进来后怎么路由）</summary>
+              <ul>
+                <li>关键问题：谁触发了中断？为什么触发？处理完如何返回？</li>
+              </ul>
             </details>
           </li>
           <li>
             <details>
-              <summary><code>kernel/sched/</code>：调度与时间 · <a href="../../blob/Prj5/kernel/sched/sched.c">sched.c</a> · <a href="../../blob/Prj5/kernel/sched/time.c">time.c</a></summary>
+              <summary><code>kernel/sched/</code>：调度与时间（让 CPU 在多个任务之间切换）</summary>
+              <ul>
+                <li>关键问题：什么时候切换？切到谁？如何保存/恢复上下文？</li>
+              </ul>
             </details>
           </li>
           <li>
             <details>
-              <summary><code>kernel/mm/</code>：内存/映射 · <a href="../../blob/Prj5/kernel/mm/mm.c">mm.c</a> · <a href="../../blob/Prj5/kernel/mm/ioremap.c">ioremap.c</a></summary>
+              <summary><code>kernel/syscall/</code>：系统调用（用户态进入内核的 API）</summary>
+              <ul>
+                <li>关键问题：系统调用号如何分发到具体内核函数？参数怎么传？返回值怎么回？</li>
+              </ul>
             </details>
           </li>
           <li>
             <details>
-              <summary><code>kernel/net/</code>：网络栈入口 · <a href="../../blob/Prj5/kernel/net/net.c">net.c</a></summary>
+              <summary><code>kernel/mm/</code>：内存管理与映射（页表、分配、MMIO 映射等）</summary>
+              <ul>
+                <li>关键问题：页表怎么建？物理页怎么分配/回收？设备寄存器怎么映射？</li>
+              </ul>
             </details>
           </li>
           <li>
             <details>
-              <summary><code>kernel/syscall/</code>：系统调用表与实现 · <a href="../../blob/Prj5/kernel/syscall/syscall.c">syscall.c</a></summary>
+              <summary><code>kernel/locking/</code>：同步原语（锁、阻塞/唤醒相关）</summary>
+              <ul>
+                <li>关键问题：并发访问怎么保护？阻塞队列如何避免丢唤醒？</li>
+              </ul>
             </details>
           </li>
           <li>
             <details>
-              <summary><code>kernel/locking/</code>：同步原语 · <a href="../../blob/Prj5/kernel/locking/lock.c">lock.c</a></summary>
+              <summary><code>kernel/loader/</code>：用户程序加载（从镜像/存储读入并启动）</summary>
+              <ul>
+                <li>关键问题：用户程序放在哪里？入口地址怎么找？加载后如何跳转执行？</li>
+              </ul>
             </details>
           </li>
           <li>
             <details>
-              <summary><code>kernel/loader/</code>：用户程序加载 · <a href="../../blob/Prj5/kernel/loader/loader.c">loader.c</a></summary>
+              <summary><code>kernel/net/</code>：网络相关（收发路径、可靠接收等）</summary>
+              <ul>
+                <li>关键问题：包从驱动到协议栈怎么走？可靠机制如何处理丢包/乱序？</li>
+              </ul>
             </details>
           </li>
-          <li><code>kernel/smp/</code>：多核支持 · <a href="../../blob/Prj5/kernel/smp/smp.c">smp.c</a></li>
+          <li><code>kernel/smp/</code>：多核支持（多核启动与同步相关）</li>
         </ul>
       </details>
     </li>
 
     <li>
       <details>
-        <summary><code>drivers/</code> · 设备驱动（Prj5 的重点） · <a href="../../tree/Prj5/drivers">打开</a></summary>
+        <summary><code>drivers/</code>：设备驱动（把硬件能力变成可用接口）</summary>
         <ul>
-          <li><b>E1000</b>：<a href="../../blob/Prj5/drivers/e1000.c">drivers/e1000.c</a> · <a href="../../blob/Prj5/drivers/e1000.h">drivers/e1000.h</a></li>
-          <li>PLIC：<a href="../../blob/Prj5/drivers/plic.c">drivers/plic.c</a></li>
-          <li>Screen：<a href="../../blob/Prj5/drivers/screen.c">drivers/screen.c</a></li>
+          <li><b>E1000</b>：网卡驱动（TX/RX 描述符环、DMA、寄存器、中断）</li>
+          <li><b>PLIC</b>：外部中断控制器（claim/complete）</li>
+          <li><b>Screen</b>：输出/显示相关支持</li>
         </ul>
       </details>
     </li>
 
     <li>
       <details>
-        <summary><code>include/</code> · 头文件与接口 · <a href="../../tree/Prj5/include">打开</a></summary>
+        <summary><code>include/</code>：头文件与接口（各子系统对外“说话的方式”）</summary>
         <ul>
-          <li><code>include/os/</code>：内核子系统接口 · <a href="../../blob/Prj5/include/os/net.h">net.h</a> · <a href="../../blob/Prj5/include/os/mm.h">mm.h</a> · <a href="../../blob/Prj5/include/os/sched.h">sched.h</a></li>
-          <li><code>include/sys/</code>：系统调用号 · <a href="../../blob/Prj5/include/sys/syscall.h">syscall.h</a></li>
+          <li><code>include/os/</code>：内核子系统接口声明（mm/sched/net/lock...）</li>
+          <li><code>include/sys/</code>：系统调用号与约定</li>
         </ul>
       </details>
     </li>
 
     <li>
       <details>
-        <summary><code>init/</code> · 内核初始化入口 · <a href="../../tree/Prj5/init">打开</a></summary>
+        <summary><code>tiny_libc/</code>：用户态小型 libc + syscall 封装（写测试程序会用到）</summary>
         <ul>
-          <li><a href="../../blob/Prj5/init/main.c">init/main.c</a></li>
+          <li>你可以把它理解为：用户程序“能用 printf/调用 syscall”的最低配支持。</li>
         </ul>
       </details>
     </li>
 
     <li>
       <details>
-        <summary><code>test/</code> · 用户态测试（验证实现） · <a href="../../tree/Prj5/test">打开</a></summary>
+        <summary><code>test/</code>：用户程序与测试（验证实现、复现现象）</summary>
         <ul>
-          <li><a href="../../blob/Prj5/test/shell.c">test/shell.c</a>：交互 shell</li>
-          <li><code>test/test_project5/</code>：网卡/可靠接收测试 · <a href="../../blob/Prj5/test/test_project5/recv_stream.c">recv_stream.c</a> · <a href="../../blob/Prj5/test/test_project5/recv2.c">recv2.c</a> · <a href="../../blob/Prj5/test/test_project5/send.c">send.c</a></li>
+          <li><code>test/shell.c</code>：交互入口（运行其它测试/程序）</li>
+          <li><code>test/test_project5/</code>：网卡与可靠接收相关测试</li>
+          <li><code>test/test_project*</code>：不同阶段的测试用例集合</li>
         </ul>
       </details>
     </li>
 
     <li>
       <details>
-        <summary><code>tools/</code> · 构建与工具 · <a href="../../tree/Prj5/tools">打开</a></summary>
+        <summary><code>tools/</code>：构建与工具（镜像制作、发包工具等）</summary>
         <ul>
-          <li><a href="../../blob/Prj5/tools/createimage.c">tools/createimage.c</a>：镜像制作</li>
-          <li><code>tools/pkt-rx-tx-master/</code>：发包/抓包辅助工具 · <a href="../../tree/Prj5/tools/pkt-rx-tx-master/images">images/</a></li>
+          <li><code>tools/createimage.c</code>：镜像制作工具源码</li>
+          <li><code>tools/pkt-rx-tx-master/</code>：发包/抓包辅助工具与说明</li>
         </ul>
       </details>
     </li>
 
     <li>
       <details>
-        <summary><code>tiny_libc/</code> · 用户态 libc 与 syscall 封装 · <a href="../../tree/Prj5/tiny_libc">打开</a></summary>
+        <summary><code>libs/</code>：内核基础库（printk/字符串等）</summary>
         <ul>
-          <li><a href="../../blob/Prj5/tiny_libc/syscall.c">tiny_libc/syscall.c</a></li>
-          <li><a href="../../tree/Prj5/tiny_libc/include">tiny_libc/include/</a></li>
+          <li>内核里很多“看起来像 libc”的能力会放在这里。</li>
         </ul>
       </details>
     </li>
 
     <li>
       <details>
-        <summary><code>libs/</code> · 内核基础库 · <a href="../../tree/Prj5/libs">打开</a></summary>
+        <summary><code>guide/</code>：实验指导书（对照任务要求、验收点）</summary>
         <ul>
-          <li><a href="../../blob/Prj5/libs/printk.c">libs/printk.c</a> · <a href="../../blob/Prj5/libs/string.c">libs/string.c</a></li>
-        </ul>
-      </details>
-    </li>
-
-    <li>
-      <details>
-        <summary><code>guide/</code> · 实验指导书 · <a href="../../tree/Prj5/guide">打开</a></summary>
-        <ul>
-          <li><a href="../../blob/Prj5/guide/guide_book_p5.pdf">guide_book_p5.pdf</a> · <a href="../../blob/Prj5/guide/guide_book_p6.pdf">guide_book_p6.pdf</a></li>
+          <li>建议：先读对应 project 的 guide，再回头读实现分支的 README 与代码。</li>
         </ul>
       </details>
     </li>
