@@ -50,7 +50,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>arch/</code>：RISC-V 架构相关（启动、陷入、CSR、页表基础）</summary>
@@ -61,7 +60,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>kernel/</code>：内核核心子系统（“操作系统能力”主要在这里）</summary>
@@ -126,7 +124,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>drivers/</code>：设备驱动（把硬件能力变成可用接口）</summary>
@@ -137,7 +134,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>include/</code>：头文件与接口（各子系统对外“说话的方式”）</summary>
@@ -147,7 +143,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>tiny_libc/</code>：用户态小型 libc + syscall 封装（写测试程序会用到）</summary>
@@ -156,7 +151,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>test/</code>：用户程序与测试（验证实现、复现现象）</summary>
@@ -167,7 +161,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>tools/</code>：构建与工具（镜像制作、发包工具等）</summary>
@@ -177,7 +170,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>libs/</code>：内核基础库（printk/字符串等）</summary>
@@ -186,7 +178,6 @@
         </ul>
       </details>
     </li>
-
     <li>
       <details>
         <summary><code>guide/</code>：实验指导书（对照任务要求、验收点）</summary>
