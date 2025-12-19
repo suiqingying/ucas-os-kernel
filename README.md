@@ -52,24 +52,17 @@
       </p>
       <p>适合第一次上手：构建、运行、调试工具的入口。</p>
     </td>
+    <td width="33%"></td>
     <td width="33%">
-      <h3>Current (main)</h3>
+      <h3>Current (Prj5)</h3>
       <p><b>当前工作基线</b></p>
       <p>
-        <a href="../../tree/main">进入分支</a> ·
-        <a href="../../blob/main/README.md">打开 README</a>
+        <a href="../../tree/Prj5">进入分支</a> ·
+        <a href="../../blob/Prj5/README.md">打开 README</a>
       </p>
       <p>提示：以 <code>main</code> 的内容与状态为准。</p>
     </td>
-    <td width="33%">
-      <h3>Project 6</h3>
-      <p><b>文件系统（文件管理）</b></p>
-      <p>
-        <a href="../../tree/Prj6">进入分支</a> ·
-        <a href="../../blob/Prj6/README.md">打开 README</a>
-      </p>
-      <p>提示：本地尚未检出 <code>Prj6</code> 分支；如果你的远端已有该分支，上述链接会直接生效。</p>
-    </td>
+    
   </tr>
   <tr>
     <td width="33%">
@@ -119,7 +112,15 @@
       </p>
       <p>关键词：E1000、TX/RX、中断、可靠接收/重传</p>
     </td>
-    <td width="33%"></td>
+    <td width="33%">
+      <h3>Project 6</h3>
+      <p><b>文件系统（文件管理）</b></p>
+      <p>
+        <a href="../../tree/Prj6">进入分支</a> ·
+        <a href="../../blob/Prj6/README.md">打开 README</a>
+      </p>
+      <p>提示：尚未完成 <code>Prj6</code> 分支</p>
+    </td>
   </tr>
 </table>
 
