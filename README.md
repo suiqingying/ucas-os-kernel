@@ -12,7 +12,7 @@
   <div style="margin: 20px 0; padding: 15px; border: 2px solid #FF4500; border-radius: 10px; background-color: #fff5f0;">
     <p><b>✨ 想要更流畅的阅读体验？✨</b></p>
     <p>
-      👉 <b><a href="https://suiqingying.github.io/ucas-os-kernel/">【点击这里】访问本项目专门设计的“通关宝典”网页版</a></b> 👈
+      👉 <b><a href="https://suiqingying.github.io/UCAS-OSLab-Kernel/">【点击这里】访问本项目专门设计的“通关宝典”网页版</a></b> 👈
     </p>
     <p><small>(内含 ASCII 终端动画和更好的目录导航)</small></p>
   </div>
