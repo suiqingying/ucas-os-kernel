@@ -4,10 +4,10 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/ucas-os-kernel/', 
+  base: './', // 改为相对路径，这样无论仓库名是什么都能正确加载
   build: {
-    outDir: '../docs',      
-    emptyOutDir: true,      
+    outDir: '../docs',
+    emptyOutDir: true,
   },
   resolve: {
     alias: {
