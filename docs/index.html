@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UCAS-OS Kernel | 操作系统研讨课笔记</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="icon" href="https://img.icons8.com/fluency/48/000000/console.png">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>UCAS-OS Kernel</h1>
+            <p class="subtitle">从零构建 RISC-V 操作系统内核</p>
+            
+            <div class="terminal-box">
+                <p><span class="prompt">stu@ucas-os:~$</span> <span class="cmd">make run</span></p>
+                <p>OpenSBI v0.9</p>
+                <p>   ____ _____ _____ </p>
+                <p>  / __ \_   _/ ____|</p>
+                <p> | |  | || || (___  </p>
+                <p> | |  | || | \___ \ </p>
+                <p> | |__| || |_____) |</p>
+                <p>  \____/_____|_____/</p>
+                <p>Loading Kernel...</p>
+                <p style="color: #238636;">[OK] Kernel initialized successfully.</p>
+            </div>
+        </header>
+
+        <section>
+            <h2>🚀 实验通关指南</h2>
+            <div class="grid">
+                <div class="card">
+                    <h3>Project 1</h3>
+                    <span class="status-badge">Bootloader</span>
+                    <p>引导加载器与镜像制作。梦开始的地方，第一次看到 Hello World。</p>
+                    <a href="../tree/Prj1" class="btn">View Code →</a>
+                </div>
+                <div class="card">
+                    <h3>Project 2</h3>
+                    <span class="status-badge">Kernel Core</span>
+                    <p>调度器、锁机制与系统调用。最硬核的部分，理解 OS 如何管理 CPU。</p>
+                    <a href="../tree/Prj2" class="btn">View Code →</a>
+                </div>
+                <div class="card">
+                    <h3>Project 4</h3>
+                    <span class="status-badge">Virtual Memory</span>
+                    <p>Sv39 页表、TLB 与缺页异常。让每个进程以为自己拥有整个世界。</p>
+                    <a href="../tree/Prj4" class="btn">View Code →</a>
+                </div>
+                <div class="card">
+                    <h3>Project 5</h3>
+                    <span class="status-badge">Drivers & Net</span>
+                    <p>E1000 网卡驱动与 TCP/IP 协议栈。完成度最高的版本。</p>
+                    <a href="../tree/Prj5" class="btn">View Code →</a>
+                </div>
+            </div>
+        </section>
+
+        <section style="margin-top: 3rem;">
+            <h2>🗺️ 学习路线图</h2>
+            <div style="background: white; padding: 1rem; border-radius: 8px; margin-top: 1rem; text-align: center;">
+                <img src="../assets/learning_roadmap.png" alt="Learning Roadmap" style="max-width: 100%;">
+            </div>
+        </section>
+
+        <footer>
+            <p>Made with ☕ & 🐛 by UCAS Student.</p>
+            <p>非官方项目，仅供学习交流。</p>
+            <span class="star-me">🌟 如果这份代码救了你的头发，记得点个 Star！ 🌟</span>
+        </footer>
+    </div>
+</body>
+</html>
