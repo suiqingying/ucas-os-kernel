@@ -1,18 +1,25 @@
 <div align="center">
-  <img src="./assets/architecture_overview.png" width="100%" alt="UCAS-OS 操作系统架构概览" />
-</div>
+  <h1>UCAS 操作系统研讨课 (OS Kernel)</h1>
+  <h3>个人实现与学习笔记</h3>
+  
+  <p>
+    <img src="https://img.shields.io/badge/Architecture-RISC--V-black?style=for-the-badge&logo=riscv" alt="RISC-V" />
+    <img src="https://img.shields.io/badge/Language-C%20%2F%20Assembly-blue?style=for-the-badge&logo=c" alt="Language" />
+    <img src="https://img.shields.io/badge/Status-Course%20Completed-success?style=for-the-badge" alt="Status" />
+  </p>
 
-<div align="center">
-  <img src="https://img.shields.io/badge/Architecture-RISC--V-black?style=for-the-badge&logo=riscv" alt="RISC-V" />
-  <img src="https://img.shields.io/badge/Language-C%20%2F%20Assembly-blue?style=for-the-badge&logo=c" alt="Language" />
-  <img src="https://img.shields.io/badge/Status-Course%20Completed-success?style=for-the-badge" alt="Status" />
-</div>
+  <img src="./assets/architecture_overview.png" width="80%" alt="UCAS-OS 操作系统架构概览" />
 
-<div align="center">
-  <h3>UCAS 操作系统研讨课 (OS Kernel) 个人实现与学习笔记</h3>
-  <a href="../../tree/Prj1"><img alt="Start Prj1" src="https://img.shields.io/badge/Start-Prj1-7C3AED?style=for-the-badge" /></a>
-  <a href="../../tree/Prj4"><img alt="VM Prj4" src="https://img.shields.io/badge/Virtual%20Memory-Prj4-22D3EE?style=for-the-badge" /></a>
-  <a href="../../tree/Prj5"><img alt="Net Prj5" src="https://img.shields.io/badge/Driver%20%26%20Network-Prj5-34D399?style=for-the-badge" /></a>
+  <p>
+    <a href="../../tree/Prj1"><img alt="Start Prj1" src="https://img.shields.io/badge/Start-Prj1-7C3AED?style=for-the-badge" /></a>
+    <a href="../../tree/Prj4"><img alt="VM Prj4" src="https://img.shields.io/badge/Virtual%20Memory-Prj4-22D3EE?style=for-the-badge" /></a>
+    <a href="../../tree/Prj5"><img alt="Net Prj5" src="https://img.shields.io/badge/Driver%20%26%20Network-Prj5-34D399?style=for-the-badge" /></a>
+  </p>
+
+  <p>
+    <b>🌟 如果这份代码救了你的头发，请反手点个 Star 予以慰问！🌟</b><br/>
+    <i>(听说点过 Star 的同学，内核都不报 Page Fault，实验验收一次过 😉)</i>
+  </p>
 </div>
 
 ---
@@ -50,62 +57,76 @@
 
 ---
 
-## 📂 代码结构导读 (以 Prj5 为例)
+## 📂 全景代码结构 (以 Prj5 为例)
 
-为了让你少走弯路，我整理了各个目录实际是干嘛的：
+这是整个项目的地图，我列出了所有一级目录。点击箭头可展开查看子模块：
 
-<details>
-  <summary><b>📂 目录结构树 (点击展开)</b></summary>
+- <details><summary><b><code>init/</code>: 系统启动入口</b></summary>
+    <ul>
+      <li><code>main.c</code>: <b>绝对核心</b>。内核的 <code>main</code> 函数，负责初始化子系统并启动 Shell。</li>
+    </ul>
+  </details>
 
-  <ul>
-    <li>
-      <details open>
-        <summary><code>init/</code> - <b>梦开始的地方</b></summary>
-        <ul>
-          <li><code>main.c</code>：内核的入口。从这里开始，我把各个子系统一个个唤醒。</li>
-        </ul>
-      </details>
-    </li>
-    <li>
-      <details>
-        <summary><code>arch/</code> - <b>最底层的黑魔法</b></summary>
-        <ul>
-          <li>这里全是和 RISC-V 硬件打交道的汇编代码。</li>
-          <li><code>boot/</code>：第一行代码运行的地方。</li>
-          <li><code>kernel/entry.S</code>：<b>极其重要！</b> 所有的异常、中断、系统调用都会经过这里，一定要看懂它是怎么保存和恢复寄存器的。</li>
-        </ul>
-      </details>
-    </li>
-    <li>
-      <details>
-        <summary><code>kernel/</code> - <b>操作系统的灵魂</b></summary>
-        <ul>
-          <li><code>sched/</code>：<b>调度器</b> - 这里的代码决定了进程怎么切换，容易出 Bug。</li>
-          <li><code>syscall/</code>：<b>系统调用</b> - 也就是 `ecall` 之后发生的事情。</li>
-          <li><code>mm/</code>：<b>内存管理</b> - 搞定页表映射，物理地址和虚拟地址的转换全在这。</li>
-          <li><code>locking/</code>：<b>锁</b> - 自旋锁、互斥锁，多核的时候要注意。</li>
-          <li><code>net/</code>：<b>协议栈</b> - 自己实现的简易 TCP/IP 栈。</li>
-        </ul>
-      </details>
-    </li>
-    <li>
-      <details>
-        <summary><code>drivers/</code> - <b>驱动程序</b></summary>
-        <ul>
-          <li><b>E1000</b>：网卡驱动。你需要在这里配置繁琐的寄存器和描述符环。</li>
-        </ul>
-      </details>
-    </li>
-    <li>
-      <details>
-        <summary><code>tools/</code> - <b>构建工具</b></summary>
-        <ul>
-          <li><code>createimage.c</code>：这是我自己写的打包工具，把 Bootblock 和 Kernel 拼成一个镜像文件。</li>
-        </ul>
-      </details>
-    </li>
-  </ul>
-</details>
+- <details><summary><b><code>arch/</code>: 架构相关 (RISC-V)</b></summary>
+    <ul>
+      <li><code>riscv/boot/</code>: <b>启动引导</b>。<code>bootblock.S</code> (加载器) 就在这里。</li>
+      <li><code>riscv/kernel/</code>: <b>底层汇编</b>。<code>entry.S</code> (异常/中断入口), <code>head.S</code> (内核入口)。</li>
+      <li><code>riscv/include/</code>: <b>硬件定义</b>。寄存器 (CSR)、页表 (PTE)、上下文 (Context) 定义。</li>
+    </ul>
+  </details>
+
+- <details><summary><b><code>kernel/</code>: 内核核心子系统</b></summary>
+    <ul>
+      <li><code>sched/</code>: <b>调度器</b>。PCB 结构、调度算法、上下文切换逻辑。</li>
+      <li><code>syscall/</code>: <b>系统调用</b>。处理用户态发来的 <code>ecall</code> 请求。</li>
+      <li><code>mm/</code>: <b>内存管理</b>。物理页分配、虚实地址映射、缺页异常处理。</li>
+      <li><code>locking/</code>: <b>同步原语</b>。自旋锁 (Spinlock)、互斥锁 (Mutex)、栅栏。</li>
+      <li><code>irq/</code>: <b>中断管理</b>。中断分发与路由。</li>
+      <li><code>net/</code>: <b>网络协议栈</b>。简易的 TCP/IP 栈实现 (Prj5)。</li>
+      <li><code>loader/</code>: <b>加载器</b>。解析 ELF 文件，把用户程序搬进内存。</li>
+      <li><code>smp/</code>: <b>多核支持</b>。多核启动与核间同步。</li>
+    </ul>
+  </details>
+
+- <details><summary><b><code>drivers/</code>: 设备驱动</b></summary>
+    <ul>
+      <li><code>e1000.c</code>: <b>网卡驱动</b>。最硬核的驱动，涉及 DMA 描述符环和寄存器配置。</li>
+      <li><code>plic.c</code>: <b>中断控制器</b>。管理外部中断。</li>
+      <li><code>screen.c</code>: <b>屏幕驱动</b>。基础的字符输出。</li>
+    </ul>
+  </details>
+
+- <details><summary><b><code>include/</code>: 头文件接口</b></summary>
+    <ul>
+      <li><code>os/</code>: <b>内核头文件</b>。声明了各子系统的结构体和函数。</li>
+      <li><code>sys/</code>: <b>系统标准</b>。定义了系统调用号 (syscall numbers)。</li>
+    </ul>
+  </details>
+
+- <details><summary><b><code>libs/</code>: 内核基础库</b></summary>
+    <ul>
+      <li><code>printk.c</code>: <b>调试神器</b>。内核版的 printf 实现。</li>
+      <li><code>string.c</code>: <code>memcpy</code>, <code>memset</code>, <code>strcpy</code> 等常用工具。</li>
+    </ul>
+  </details>
+
+- <details><summary><b><code>test/</code>: 测试用例</b></summary>
+    <ul>
+      <li><code>test_project*/</code>: 对应各个 Project 的验收程序 (如 <code>test_project5</code>)。</li>
+    </ul>
+  </details>
+
+- <details><summary><b><code>tiny_libc/</code>: 用户态 C 库</b></summary>
+    <ul>
+      <li>给用户程序用的迷你标准库 (<code>printf</code>, <code>malloc</code>, <code>syscall</code> 封装)。</li>
+    </ul>
+  </details>
+
+- <details><summary><b><code>tools/</code>: 构建工具</b></summary>
+    <ul>
+      <li><code>createimage.c</code>: <b>镜像打包器</b>。读取编译好的内核和程序，制作成 QEMU 可启动的镜像文件。</li>
+    </ul>
+  </details>
 
 ---
 
