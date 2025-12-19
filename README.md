@@ -8,7 +8,7 @@
     <img src="https://img.shields.io/badge/Status-Course%20Completed-success?style=for-the-badge" alt="Status" />
   </p>
 
-  <img src="./assets/architecture_overview.png" width="80%" alt="UCAS-OS 操作系统架构概览" />
+  <img src="./docs/assets/architecture_overview.png" width="80%" alt="UCAS-OS 操作系统架构概览" />
 
   <p>
     <a href="../../tree/Prj1"><img alt="Start Prj1" src="https://img.shields.io/badge/Start-Prj1-7C3AED?style=for-the-badge" /></a>
@@ -37,7 +37,7 @@
 我是按照以下路线从零构建这个 RISC-V 内核的：
 
 <div align="center">
-  <img src="./assets/learning_roadmap.png" width="92%" alt="RISC-V OS 学习路线" />
+  <img src="./docs/assets/learning_roadmap.png" width="92%" alt="RISC-V OS 学习路线" />
   <p><i>我的通关路径：启动与引导 → 内核核心 → 虚拟内存 → 驱动与文件系统</i></p>
 </div>
 
