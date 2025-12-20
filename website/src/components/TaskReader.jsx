@@ -39,6 +39,7 @@ export default function TaskReader() {
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true); 
   const [activeHeader, setActiveHeader] = useState('');
+  const [loadError, setLoadError] = useState('');
   
   const headingIdCounts = {};
 
@@ -52,30 +53,30 @@ export default function TaskReader() {
             navigate(`/read/${data[0].id}`, { replace: true });
         }
       })
-      .catch(err => console.error("Failed to load notes index", err));
+      .catch(err => {
+        console.error("Failed to load notes index", err);
+        setLoadError('Failed to load notes index.');
+      });
   }, []);
 
-  // 2. Fetch Content & Handle Expansion
+  // 2. Fetch Content
   useEffect(() => {
     if (!noteId || allNotes.length === 0) return;
-
-    // Auto-expand the current project
-    setExpandedProjects(prev => ({
-        ...prev,
-        [noteId]: true
-    }));
 
     const note = allNotes.find(n => n.id === noteId);
     if (!note) {
         setContent("# 404\nProject not found.");
+        setLoadError('Project not found.');
         setLoading(false);
         return;
     }
 
     setLoading(true);
     setToc([]); 
+    setLoadError('');
     
-    const fetchPath = note.path.startsWith('/') ? '.' + note.path : note.path;
+    const relativePath = note.path.startsWith('/') ? note.path.slice(1) : note.path;
+    const fetchPath = `${import.meta.env.BASE_URL}${relativePath}`;
     
     fetch(fetchPath)
         .then(res => res.text())
@@ -91,6 +92,7 @@ export default function TaskReader() {
         })
         .catch(err => {
             console.error(err);
+            setLoadError('Failed to load note content.');
             setLoading(false);
         });
   }, [noteId, allNotes]);
@@ -270,6 +272,11 @@ export default function TaskReader() {
           </div>
 
           <div className="max-w-4xl mx-auto px-6 py-10 lg:py-16 lg:px-12">
+             {loadError && (
+                <div className="mb-6 rounded-lg border border-[#d8dee9] bg-white px-4 py-3 text-sm text-[#bf616a] font-sans">
+                  {loadError}
+                </div>
+             )}
              {loading ? (
                 <div className="animate-pulse space-y-6 mt-10">
                     <div className="h-10 bg-[#d8dee9] rounded w-1/2"></div>
