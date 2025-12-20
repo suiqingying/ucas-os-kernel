@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -18,6 +18,16 @@ const slugify = (text) => {
     .replace(/-+$/, '');            
 };
 
+const getNodeText = (node) => {
+  if (node === null || node === undefined) return '';
+  if (typeof node === 'string' || typeof node === 'number') return String(node);
+  if (Array.isArray(node)) return node.map(getNodeText).join('');
+  if (typeof node === 'object' && node.props && node.props.children) {
+    return getNodeText(node.props.children);
+  }
+  return '';
+};
+
 export default function TaskReader() {
   const { noteId } = useParams();
   const navigate = useNavigate();
@@ -32,6 +42,7 @@ export default function TaskReader() {
   
   // State to track expanded projects in sidebar
   const [expandedProjects, setExpandedProjects] = useState({});
+  const headingIdCounts = useMemo(() => ({}), [content]);
 
   // 1. Fetch Index
   useEffect(() => {
@@ -164,6 +175,18 @@ export default function TaskReader() {
       }));
   };
 
+  const getHeadingId = (rawText) => {
+    const text = rawText || '';
+    let slug = slugify(text);
+    if (headingIdCounts[slug] !== undefined) {
+      headingIdCounts[slug] += 1;
+      slug = `${slug}-${headingIdCounts[slug]}`;
+    } else {
+      headingIdCounts[slug] = 0;
+    }
+    return slug;
+  };
+
   return (
     <div className="flex h-screen bg-[#eceff4] overflow-hidden font-serif text-[#2e3440]">
       
@@ -190,7 +213,7 @@ export default function TaskReader() {
              <div className="space-y-1">
                  {allNotes.map((note) => {
                      const isActive = note.id === noteId;
-                     const isExpanded = expandedProjects[note.id] || isActive; // Always expanded if active
+                     const isExpanded = expandedProjects[note.id] ?? isActive; // Allow manual collapse even when active
 
                      return (
                          <div key={note.id} className="mb-2">
@@ -289,9 +312,9 @@ export default function TaskReader() {
                         children={content} 
                         remarkPlugins={[remarkGfm]}
                         components={{
-                            h1: ({node, ...props}) => <h1 id={slugify(props.children[0])} {...props} />,
-                            h2: ({node, ...props}) => <h2 id={slugify(props.children[0])} {...props} />,
-                            h3: ({node, ...props}) => <h3 id={slugify(props.children[0])} {...props} />,
+                            h1: ({node, ...props}) => <h1 id={getHeadingId(getNodeText(props.children))} {...props} />,
+                            h2: ({node, ...props}) => <h2 id={getHeadingId(getNodeText(props.children))} {...props} />,
+                            h3: ({node, ...props}) => <h3 id={getHeadingId(getNodeText(props.children))} {...props} />,
                             code({node, inline, className, children, ...props}) {
                                 const match = /language-(\w+)/.exec(className || '')
                                 return !inline && match ? (
