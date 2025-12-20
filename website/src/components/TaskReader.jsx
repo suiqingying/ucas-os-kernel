@@ -1,28 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { nord } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
-import { Menu, X, ChevronDown, Home, Github } from 'lucide-react';
+import { Menu, X, ChevronDown, Home, Github, ChevronRight } from 'lucide-react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 
 // Simple slugify function for anchor links
 const slugify = (text) => {
-  return text.toLowerCase().replace(/[^\w\u4e00-\u9fa5]+/g, '-').replace(/^-+|-+$/g, '');
+  return text.toLowerCase().replace(/[^一-龥\w]+|--/g, '-').replace(/^-+|-+$/g, '');
 };
 
 export default function TaskReader() {
   const { noteId } = useParams();
   const navigate = useNavigate();
+  const scrollContainerRef = useRef(null);
   
-  const [allNotes, setAllNotes] = useState([]); // List of all projects
+  const [allNotes, setAllNotes] = useState([]); 
   const [content, setContent] = useState('');
-  const [toc, setToc] = useState([]); // TOC for CURRENT note
+  const [toc, setToc] = useState([]); 
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true); // Default open on desktop
+  const [sidebarOpen, setSidebarOpen] = useState(true); 
   const [activeHeader, setActiveHeader] = useState('');
 
-  // 1. Fetch Index (List of Projects)
+  // 1. Fetch Index
   useEffect(() => {
     fetch('./notes-index.json')
       .then(res => res.json())
@@ -32,12 +33,10 @@ export default function TaskReader() {
             navigate(`/read/${data[0].id}`, { replace: true });
         }
       })
-      .catch(err => {
-        console.error("Failed to load notes index", err);
-      });
+      .catch(err => console.error("Failed to load notes index", err));
   }, []);
 
-  // 2. Fetch Content when noteId changes
+  // 2. Fetch Content
   useEffect(() => {
     if (!noteId || allNotes.length === 0) return;
 
@@ -49,9 +48,8 @@ export default function TaskReader() {
     }
 
     setLoading(true);
-    setToc([]); // Clear old TOC
+    setToc([]); 
     
-    // Determine path
     const fetchPath = note.path.startsWith('/') ? '.' + note.path : note.path;
     
     fetch(fetchPath)
@@ -60,9 +58,9 @@ export default function TaskReader() {
             setContent(text);
             generateTOC(text);
             setLoading(false);
-            window.scrollTo(0, 0);
-            
-            // Mobile: Close sidebar on selection
+            if (scrollContainerRef.current) {
+                scrollContainerRef.current.scrollTop = 0;
+            }
             if (window.innerWidth < 1024) setSidebarOpen(false);
         })
         .catch(err => {
@@ -71,14 +69,13 @@ export default function TaskReader() {
         });
   }, [noteId, allNotes]);
 
-  // 3. Generate TOC from Markdown
+  // 3. Generate TOC
   const generateTOC = (markdown) => {
     const lines = markdown.split('\n');
     const headers = [];
     const idMap = {};
 
     lines.forEach(line => {
-      // Parse H2 and H3
       const match = line.match(/^(#{2,3})\s+(.+)$/);
       if (match) {
         const level = match[1].length; 
@@ -97,16 +94,20 @@ export default function TaskReader() {
     setToc(headers);
   };
 
-  // 4. Scroll Spy
+  // 4. Scroll Spy (Targeting the container)
   useEffect(() => {
     if (loading) return;
+    
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
           setActiveHeader(entry.target.id);
         }
       });
-    }, { rootMargin: '-100px 0px -60% 0px' });
+    }, { 
+        root: scrollContainerRef.current, // Observe within the scroll container
+        rootMargin: '-20% 0px -70% 0px' 
+    });
 
     const headings = document.querySelectorAll('h2, h3');
     headings.forEach(h => observer.observe(h));
@@ -114,17 +115,19 @@ export default function TaskReader() {
     return () => observer.disconnect();
   }, [content, loading]);
 
-  // Helper to handle TOC click
+  // Handle TOC Click (Scroll the container)
   const handleTocClick = (slug, e) => {
       e.preventDefault();
       const el = document.getElementById(slug);
-      if (el) {
-          const headerOffset = 80;
-          const elementPosition = el.getBoundingClientRect().top;
-          const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
-        
-          window.scrollTo({
-              top: offsetPosition,
+      if (el && scrollContainerRef.current) {
+          // Calculate offset relative to the container
+          const containerTop = scrollContainerRef.current.getBoundingClientRect().top;
+          const elementTop = el.getBoundingClientRect().top;
+          const relativeTop = elementTop - containerTop + scrollContainerRef.current.scrollTop;
+          const headerOffset = 20; // Padding
+
+          scrollContainerRef.current.scrollTo({
+              top: relativeTop - headerOffset,
               behavior: "smooth"
           });
           
@@ -136,12 +139,11 @@ export default function TaskReader() {
   return (
     <div className="flex h-screen bg-[#eceff4] overflow-hidden font-serif text-[#2e3440]">
       
-      {/* Sidebar Backdrop (Mobile) */}
       {sidebarOpen && (
         <div className="fixed inset-0 bg-black/20 z-20 backdrop-blur-sm lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* Sidebar Navigation */}
+      {/* Sidebar */}
       <div className={`
         fixed inset-y-0 left-0 z-30 w-72 bg-[#e5e9f0] border-r border-[#d8dee9] transform transition-transform duration-300 ease-in-out flex flex-col
         lg:relative lg:translate-x-0 
@@ -162,7 +164,6 @@ export default function TaskReader() {
                      const isActive = note.id === noteId;
                      return (
                          <div key={note.id} className="mb-2">
-                             {/* Project Title Link */}
                              <Link 
                                 to={`/read/${note.id}`}
                                 className={`flex items-center justify-between w-full text-left px-3 py-2 rounded-lg text-sm font-bold transition-colors font-sans
@@ -176,7 +177,6 @@ export default function TaskReader() {
                                  {isActive && <ChevronDown size={14} className="text-[#5e81ac] shrink-0"/>}
                              </Link>
 
-                             {/* Nested TOC for Active Project */}
                              {isActive && toc.length > 0 && (
                                  <div className="mt-1 ml-4 border-l border-[#d8dee9] pl-3 space-y-1 animate-in slide-in-from-left-1 duration-200">
                                      {toc.map((item, idx) => (
@@ -184,7 +184,7 @@ export default function TaskReader() {
                                             key={idx}
                                             href={`#${item.slug}`}
                                             onClick={(e) => handleTocClick(item.slug, e)}
-                                            className={`block text-xs py-1 leading-relaxed transition-colors font-sans truncate
+                                            className={`block text-xs py-1 leading-relaxed transition-colors font-sans truncate cursor-pointer
                                                 ${item.level === 3 ? 'pl-2 text-[#99aab9]' : 'text-[#4c566a]'}
                                                 ${activeHeader === item.slug ? 'text-[#5e81ac] font-bold' : 'hover:text-[#2e3440]'}
                                             `}
@@ -201,7 +201,6 @@ export default function TaskReader() {
              </div>
           </div>
           
-           {/* Sidebar Footer */}
            <div className="p-4 border-t border-[#d8dee9] bg-[#e5e9f0]">
               <a href="https://github.com/suiqingying/ucas-os-kernel" target="_blank" rel="noreferrer" className="flex items-center justify-center gap-2 text-sm text-[#4c566a] hover:text-[#2e3440] transition-colors">
                   <Github size={16} /> <span>Repository</span>
@@ -210,9 +209,13 @@ export default function TaskReader() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-[#eceff4]" id="scroll-container">
+      <div 
+        className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-[#eceff4]"
+        id="scroll-container"
+        ref={scrollContainerRef}
+      >
           
-          {/* Mobile Toggle Header */}
+          {/* Mobile Header */}
           <div className="lg:hidden sticky top-0 bg-[#eceff4]/95 backdrop-blur border-b border-[#d8dee9] px-4 py-3 flex items-center gap-3 z-10">
               <button onClick={() => setSidebarOpen(true)} className="text-[#4c566a] p-1 rounded hover:bg-[#d8dee9]">
                   <Menu size={20} />
@@ -228,7 +231,6 @@ export default function TaskReader() {
                     <div className="h-10 bg-[#d8dee9] rounded w-1/2"></div>
                     <div className="h-4 bg-[#d8dee9] rounded w-full"></div>
                     <div className="h-4 bg-[#d8dee9] rounded w-full"></div>
-                    <div className="h-4 bg-[#d8dee9] rounded w-3/4"></div>
                 </div>
              ) : (
                 <article className="prose prose-stone prose-lg max-w-none 
