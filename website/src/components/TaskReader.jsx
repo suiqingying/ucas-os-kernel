@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { nord } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
-import { Menu, X, ChevronDown, ChevronRight, Home, Github } from 'lucide-react';
+import { Menu, X, Home, Github } from 'lucide-react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 
 // Enhanced slugify function
@@ -40,9 +40,7 @@ export default function TaskReader() {
   const [sidebarOpen, setSidebarOpen] = useState(true); 
   const [activeHeader, setActiveHeader] = useState('');
   
-  // State to track expanded projects in sidebar
-  const [expandedProjects, setExpandedProjects] = useState({});
-  const headingIdCounts = useMemo(() => ({}), [content]);
+  const headingIdCounts = {};
 
   // 1. Fetch Index
   useEffect(() => {
@@ -83,7 +81,8 @@ export default function TaskReader() {
         .then(res => res.text())
         .then(text => {
             setContent(text);
-            generateTOC(text);
+            const generated = generateTOC(text);
+            setToc(generated);
             setLoading(false);
             if (scrollContainerRef.current) {
                 scrollContainerRef.current.scrollTop = 0;
@@ -103,7 +102,7 @@ export default function TaskReader() {
     const idMap = {};
 
     lines.forEach(line => {
-      const match = line.match(/^(#{2,3})\s+(.+)$/);
+      const match = line.match(/^(#{1,3})\s+(.+)$/);
       if (match) {
         const level = match[1].length; 
         const title = match[2].trim();
@@ -115,10 +114,12 @@ export default function TaskReader() {
         } else {
             idMap[slug] = 0;
         }
-        headers.push({ level, title, slug });
+        if (level === 2 || level === 3) {
+          headers.push({ level, title, slug });
+        }
       }
     });
-    setToc(headers);
+    return headers;
   };
 
   // 4. Scroll Spy
@@ -136,43 +137,51 @@ export default function TaskReader() {
         rootMargin: '-20% 0px -70% 0px' 
     });
 
-    const headings = document.querySelectorAll('h2, h3');
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const headings = container.querySelectorAll('h2, h3');
     headings.forEach(h => observer.observe(h));
 
     return () => observer.disconnect();
   }, [content, loading]);
 
-  // Handle TOC Click
-  const handleTocClick = (slug, e) => {
-      e.preventDefault();
-      const el = document.getElementById(slug);
-      
-      if (el && scrollContainerRef.current) {
-          const containerTop = scrollContainerRef.current.getBoundingClientRect().top;
-          const elementTop = el.getBoundingClientRect().top;
-          const relativeTop = elementTop - containerTop + scrollContainerRef.current.scrollTop;
-          const headerOffset = 20; 
-
-          scrollContainerRef.current.scrollTo({
-              top: relativeTop - headerOffset,
-              behavior: "smooth"
-          });
-          
-          setActiveHeader(slug);
-          if (window.innerWidth < 1024) setSidebarOpen(false);
-      } else {
-          console.warn(`Element with id ${slug} not found`);
+  const scrollToHeading = (slug) => {
+    const container = scrollContainerRef.current;
+    let el = document.getElementById(slug);
+    if (!el && container) {
+      el = container.querySelector(`[data-slug="${slug}"]`);
+    }
+    if (!el && container) {
+      const headings = container.querySelectorAll('h2, h3');
+      for (const heading of headings) {
+        if (slugify(heading.textContent || '') === slug) {
+          el = heading;
+          break;
+        }
       }
+    }
+    if (el && container) {
+      const containerTop = container.getBoundingClientRect().top;
+      const elementTop = el.getBoundingClientRect().top;
+      const relativeTop = elementTop - containerTop + container.scrollTop;
+      const headerOffset = 20; 
+
+      container.scrollTo({
+        top: relativeTop - headerOffset,
+        behavior: "smooth"
+      });
+      
+      setActiveHeader(slug);
+      if (window.innerWidth < 1024) setSidebarOpen(false);
+    } else {
+      console.warn(`Element with id ${slug} not found`);
+    }
   };
 
-  // Toggle Project Expansion
-  const toggleProject = (id, e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setExpandedProjects(prev => ({
-          ...prev,
-          [id]: !prev[id]
-      }));
+  // Handle TOC Click
+  const handleTocClick = (slug, e) => {
+    e.preventDefault();
+    scrollToHeading(slug);
   };
 
   const getHeadingId = (rawText) => {
@@ -213,53 +222,23 @@ export default function TaskReader() {
              <div className="space-y-1">
                  {allNotes.map((note) => {
                      const isActive = note.id === noteId;
-                     const isExpanded = expandedProjects[note.id] ?? isActive; // Allow manual collapse even when active
 
                      return (
-                         <div key={note.id} className="mb-2">
-                             {/* Project Title Row */}
-                             <div className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm font-bold transition-colors font-sans
-                                    ${isActive 
-                                        ? 'bg-white text-[#5e81ac] shadow-sm border border-[#d8dee9]' 
-                                        : 'text-[#4c566a] hover:bg-[#d8dee9]/50 hover:text-[#2e3440]'
-                                    }
-                                `}
-                             >
-                                 <Link 
-                                    to={`/read/${note.id}`}
-                                    className="flex-1 truncate"
-                                 >
-                                     {note.title}
-                                 </Link>
-                                 
-                                 <button 
-                                    onClick={(e) => toggleProject(note.id, e)}
-                                    className="p-1 hover:bg-[#d8dee9] rounded ml-2"
-                                 >
-                                     {isExpanded ? <ChevronDown size={14} className="text-[#5e81ac]"/> : <ChevronRight size={14} className="text-[#4c566a]"/>}
-                                 </button>
-                             </div>
-
-                             {/* Nested TOC */}
-                             {isActive && isExpanded && toc.length > 0 && (
-                                 <div className="mt-1 ml-4 border-l border-[#d8dee9] pl-3 space-y-1 animate-in slide-in-from-left-1 duration-200">
-                                     {toc.map((item, idx) => (
-                                         <a
-                                            key={idx}
-                                            href={`#${item.slug}`}
-                                            onClick={(e) => handleTocClick(item.slug, e)}
-                                            className={`block text-xs py-1 leading-relaxed transition-colors font-sans truncate cursor-pointer select-none
-                                                ${item.level === 3 ? 'pl-2 text-[#99aab9]' : 'text-[#4c566a]'}
-                                                ${activeHeader === item.slug ? 'text-[#5e81ac] font-bold' : 'hover:text-[#2e3440]'}
-                                            `}
-                                            title={item.title}
-                                         >
-                                             {item.title}
-                                         </a>
-                                     ))}
-                                 </div>
-                             )}
-                         </div>
+                         <Link
+                            key={note.id}
+                            to={`/read/${note.id}`}
+                            onClick={() => {
+                              if (window.innerWidth < 1024) setSidebarOpen(false);
+                            }}
+                            className={`block w-full px-3 py-2 rounded-lg text-sm font-bold transition-colors font-sans truncate
+                                ${isActive 
+                                    ? 'bg-white text-[#5e81ac] shadow-sm border border-[#d8dee9]' 
+                                    : 'text-[#4c566a] hover:bg-[#d8dee9]/50 hover:text-[#2e3440]'
+                                }
+                            `}
+                         >
+                             {note.title}
+                         </Link>
                      );
                  })}
              </div>
@@ -272,12 +251,13 @@ export default function TaskReader() {
           </div>
       </div>
 
-      {/* Main Content Area */}
-      <div 
-        className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-[#eceff4]"
-        id="scroll-container"
-        ref={scrollContainerRef}
-      >
+      {/* Content Area */}
+      <div className="flex-1 h-full overflow-hidden flex">
+        <div 
+          className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-[#eceff4]"
+          id="scroll-container"
+          ref={scrollContainerRef}
+        >
           
           {/* Mobile Header */}
           <div className="lg:hidden sticky top-0 bg-[#eceff4]/95 backdrop-blur border-b border-[#d8dee9] px-4 py-3 flex items-center gap-3 z-10">
@@ -312,9 +292,18 @@ export default function TaskReader() {
                         children={content} 
                         remarkPlugins={[remarkGfm]}
                         components={{
-                            h1: ({node, ...props}) => <h1 id={getHeadingId(getNodeText(props.children))} {...props} />,
-                            h2: ({node, ...props}) => <h2 id={getHeadingId(getNodeText(props.children))} {...props} />,
-                            h3: ({node, ...props}) => <h3 id={getHeadingId(getNodeText(props.children))} {...props} />,
+                            h1: ({node, ...props}) => {
+                              const slug = getHeadingId(getNodeText(props.children));
+                              return <h1 {...props} id={slug} data-slug={slug} />;
+                            },
+                            h2: ({node, ...props}) => {
+                              const slug = getHeadingId(getNodeText(props.children));
+                              return <h2 {...props} id={slug} data-slug={slug} />;
+                            },
+                            h3: ({node, ...props}) => {
+                              const slug = getHeadingId(getNodeText(props.children));
+                              return <h3 {...props} id={slug} data-slug={slug} />;
+                            },
                             code({node, inline, className, children, ...props}) {
                                 const match = /language-(\w+)/.exec(className || '')
                                 return !inline && match ? (
@@ -376,6 +365,34 @@ export default function TaskReader() {
                 </div>
              )}
           </div>
+        </div>
+
+        {/* Right Sidebar */}
+        <aside className="hidden xl:flex w-72 bg-[#e5e9f0] border-l border-[#d8dee9] flex-col">
+          <div className="p-4 border-b border-[#d8dee9] font-bold text-sm text-[#2e3440] font-sans">
+            Chapters
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-1 custom-scrollbar">
+            {toc.length > 0 ? (
+              toc.map((item, idx) => (
+                <button
+                  key={`${item.slug}-${idx}`}
+                  type="button"
+                  onClick={(e) => handleTocClick(item.slug, e)}
+                  className={`block w-full text-left text-xs py-1 leading-relaxed transition-colors font-sans truncate
+                    ${item.level === 3 ? 'pl-3 text-[#99aab9]' : 'text-[#4c566a]'}
+                    ${activeHeader === item.slug ? 'text-[#5e81ac] font-bold' : 'hover:text-[#2e3440]'}
+                  `}
+                  title={item.title}
+                >
+                  {item.title}
+                </button>
+              ))
+            ) : (
+              <div className="text-xs text-[#99aab9] font-sans">No headings</div>
+            )}
+          </div>
+        </aside>
       </div>
     </div>
   );
