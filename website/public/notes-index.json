@@ -1,0 +1,38 @@
+[
+  {
+    "id": "page-00",
+    "fileName": "page-00.md",
+    "title": "Project 0 准备知识",
+    "path": "/notes/page-00.md"
+  },
+  {
+    "id": "page-01",
+    "fileName": "page-01.md",
+    "title": "Project 1 引导、镜像文件和 ELF 文件",
+    "path": "/notes/page-01.md"
+  },
+  {
+    "id": "page-02",
+    "fileName": "page-02.md",
+    "title": "Project 2 简易内核实现",
+    "path": "/notes/page-02.md"
+  },
+  {
+    "id": "page-03",
+    "fileName": "page-03.md",
+    "title": "Project 3 进程管理、通信与多核执行",
+    "path": "/notes/page-03.md"
+  },
+  {
+    "id": "page-04",
+    "fileName": "page-04.md",
+    "title": "Project 4 内存管理",
+    "path": "/notes/page-04.md"
+  },
+  {
+    "id": "page-05",
+    "fileName": "page-05.md",
+    "title": "Project 5 设备驱动",
+    "path": "/notes/page-05.md"
+  }
+]
