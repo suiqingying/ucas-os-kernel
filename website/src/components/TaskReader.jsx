@@ -3,12 +3,19 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { nord } from 'react-syntax-highlighter/dist/esm/styles/prism'; 
-import { Menu, X, ChevronDown, Home, Github, ChevronRight } from 'lucide-react';
+import { Menu, X, ChevronDown, ChevronRight, Home, Github } from 'lucide-react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 
-// Simple slugify function for anchor links
+// Enhanced slugify function to handle more characters including dots and spaces properly
 const slugify = (text) => {
-  return text.toLowerCase().replace(/[^一-龥\w]+|--/g, '-').replace(/^-+|-+$/g, '');
+  return text
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')           // Replace spaces with -
+    .replace(/[^\w\u4e00-\u9fa5\-\.]+/g, '') // Remove all non-word chars except Chinese, -, and .
+    .replace(/\-\s*-\s*/g, '-')         // Replace multiple - with single -
+    .replace(/^-+/, '')             // Trim - from start of text
+    .replace(/-+$/, '');            // Trim - from end of text
 };
 
 export default function TaskReader() {
@@ -22,6 +29,9 @@ export default function TaskReader() {
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(true); 
   const [activeHeader, setActiveHeader] = useState('');
+  
+  // State to track expanded projects in sidebar
+  const [expandedProjects, setExpandedProjects] = useState({});
 
   // 1. Fetch Index
   useEffect(() => {
@@ -36,9 +46,15 @@ export default function TaskReader() {
       .catch(err => console.error("Failed to load notes index", err));
   }, []);
 
-  // 2. Fetch Content
+  // 2. Fetch Content & Handle Expansion
   useEffect(() => {
     if (!noteId || allNotes.length === 0) return;
+
+    // Auto-expand the current project
+    setExpandedProjects(prev => ({
+        ...prev,
+        [noteId]: true
+    }));
 
     const note = allNotes.find(n => n.id === noteId);
     if (!note) {
@@ -94,7 +110,7 @@ export default function TaskReader() {
     setToc(headers);
   };
 
-  // 4. Scroll Spy (Targeting the container)
+  // 4. Scroll Spy
   useEffect(() => {
     if (loading) return;
     
@@ -105,7 +121,7 @@ export default function TaskReader() {
         }
       });
     }, { 
-        root: scrollContainerRef.current, // Observe within the scroll container
+        root: scrollContainerRef.current,
         rootMargin: '-20% 0px -70% 0px' 
     });
 
@@ -115,16 +131,16 @@ export default function TaskReader() {
     return () => observer.disconnect();
   }, [content, loading]);
 
-  // Handle TOC Click (Scroll the container)
+  // Handle TOC Click
   const handleTocClick = (slug, e) => {
       e.preventDefault();
       const el = document.getElementById(slug);
+      
       if (el && scrollContainerRef.current) {
-          // Calculate offset relative to the container
           const containerTop = scrollContainerRef.current.getBoundingClientRect().top;
           const elementTop = el.getBoundingClientRect().top;
           const relativeTop = elementTop - containerTop + scrollContainerRef.current.scrollTop;
-          const headerOffset = 20; // Padding
+          const headerOffset = 20; 
 
           scrollContainerRef.current.scrollTo({
               top: relativeTop - headerOffset,
@@ -133,7 +149,19 @@ export default function TaskReader() {
           
           setActiveHeader(slug);
           if (window.innerWidth < 1024) setSidebarOpen(false);
+      } else {
+          console.warn(`Element with id ${slug} not found`);
       }
+  };
+
+  // Toggle Project Expansion
+  const toggleProject = (id, e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setExpandedProjects(prev => ({
+          ...prev,
+          [id]: !prev[id]
+      }));
   };
 
   return (
@@ -162,29 +190,42 @@ export default function TaskReader() {
              <div className="space-y-1">
                  {allNotes.map((note) => {
                      const isActive = note.id === noteId;
+                     const isExpanded = expandedProjects[note.id] || isActive; // Always expanded if active
+
                      return (
                          <div key={note.id} className="mb-2">
-                             <Link 
-                                to={`/read/${note.id}`}
-                                className={`flex items-center justify-between w-full text-left px-3 py-2 rounded-lg text-sm font-bold transition-colors font-sans
+                             {/* Project Title Row */}
+                             <div className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm font-bold transition-colors font-sans
                                     ${isActive 
                                         ? 'bg-white text-[#5e81ac] shadow-sm border border-[#d8dee9]' 
                                         : 'text-[#4c566a] hover:bg-[#d8dee9]/50 hover:text-[#2e3440]'
                                     }
                                 `}
                              >
-                                 <span className="truncate">{note.title}</span>
-                                 {isActive && <ChevronDown size={14} className="text-[#5e81ac] shrink-0"/>}
-                             </Link>
+                                 <Link 
+                                    to={`/read/${note.id}`}
+                                    className="flex-1 truncate"
+                                 >
+                                     {note.title}
+                                 </Link>
+                                 
+                                 <button 
+                                    onClick={(e) => toggleProject(note.id, e)}
+                                    className="p-1 hover:bg-[#d8dee9] rounded ml-2"
+                                 >
+                                     {isExpanded ? <ChevronDown size={14} className="text-[#5e81ac]"/> : <ChevronRight size={14} className="text-[#4c566a]"/>}
+                                 </button>
+                             </div>
 
-                             {isActive && toc.length > 0 && (
+                             {/* Nested TOC */}
+                             {isActive && isExpanded && toc.length > 0 && (
                                  <div className="mt-1 ml-4 border-l border-[#d8dee9] pl-3 space-y-1 animate-in slide-in-from-left-1 duration-200">
                                      {toc.map((item, idx) => (
                                          <a
                                             key={idx}
                                             href={`#${item.slug}`}
                                             onClick={(e) => handleTocClick(item.slug, e)}
-                                            className={`block text-xs py-1 leading-relaxed transition-colors font-sans truncate cursor-pointer
+                                            className={`block text-xs py-1 leading-relaxed transition-colors font-sans truncate cursor-pointer select-none
                                                 ${item.level === 3 ? 'pl-2 text-[#99aab9]' : 'text-[#4c566a]'}
                                                 ${activeHeader === item.slug ? 'text-[#5e81ac] font-bold' : 'hover:text-[#2e3440]'}
                                             `}
@@ -210,7 +251,7 @@ export default function TaskReader() {
 
       {/* Main Content Area */}
       <div 
-        className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-[#eceff4]"
+        className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-[#eceff4]" 
         id="scroll-container"
         ref={scrollContainerRef}
       >
