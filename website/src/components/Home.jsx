@@ -8,22 +8,22 @@ import {
 
 const TimelineItem = ({ phase, title, tags, link, index }) => (
   <div className="relative pl-8 md:pl-0 md:grid md:grid-cols-5 md:gap-8 group">
-    {/* Line - Cold Grey */}
+    {/* Line */}
     <div className="absolute left-0 top-0 bottom-0 w-px bg-[#D8DEE9] md:left-1/2 md:-ml-px group-hover:bg-[#5E81AC] transition-colors"></div>
     
-    {/* Dot - Matte Finish */}
+    {/* Dot */}
     <div className="absolute left-[-4px] top-6 w-2.5 h-2.5 rounded-full bg-[#ECF0F1] border-2 border-[#D8DEE9] md:left-1/2 md:-ml-[5px] group-hover:border-[#5E81AC] group-hover:scale-125 transition-all"></div>
 
     {/* Content */}
     <div className={`mb-10 md:mb-0 md:col-span-2 ${index % 2 === 0 ? 'md:text-right md:pr-8' : 'md:col-start-4 md:pl-8'}`}>
-      <Link to={link} className="block bg-white p-6 rounded-xl border border-[#E5E9F0] shadow-sm hover:shadow-md hover:border-[#81A1C1] transition-all group-hover:-translate-y-1">
+      <Link to={link} className="block bg-white p-6 rounded-xl border border-[#D8DEE9] shadow-sm hover:shadow-md hover:border-[#81A1C1] transition-all group-hover:-translate-y-1">
         <div className="flex items-center gap-2 mb-2 md:justify-end justify-start">
            <span className="text-xs font-bold text-[#5E81AC] bg-[#ECF0F1] px-2 py-0.5 rounded border border-[#D8DEE9] tracking-wide">{phase}</span>
         </div>
         <h3 className="text-lg font-bold text-[#2E3440] mb-2 font-sans tracking-tight">{title}</h3>
         <div className="flex flex-wrap gap-2 mb-4 md:justify-end justify-start">
           {tags.map((tag, i) => (
-            <span key={i} className="text-xs text-[#4C566A] bg-[#ECF0F1] px-2 py-1 rounded border border-[#E5E9F0] font-mono">{tag}</span>
+            <span key={i} className="text-xs text-[#4C566A] bg-[#ECF0F1] px-2 py-1 rounded border border-[#D8DEE9] font-mono">{tag}</span>
           ))}
         </div>
         <div className="inline-flex items-center text-sm text-[#5E81AC] font-medium hover:text-[#81A1C1] transition-colors">
@@ -53,7 +53,7 @@ const FileTreeItem = ({ name, type = 'file', children, description, level = 0 })
       >
         <span className="mr-2">
           {type === 'folder' ? (
-            isOpen ? <FolderOpen size={16} className="text-[#88C0D0]" /> : <Folder size={16} className="text-[#88C0D0]" />
+            isOpen ? <FolderOpen size={16} className="text-[#5E81AC]" /> : <Folder size={16} className="text-[#5E81AC]" />
           ) : (
             <FileText size={16} className="text-[#D8DEE9]" />
           )}
@@ -62,7 +62,7 @@ const FileTreeItem = ({ name, type = 'file', children, description, level = 0 })
           {name}
         </span>
         {description && (
-          <span className="ml-auto text-xs text-[#99AAB9] italic hidden sm:block truncate max-w-[200px] font-sans">
+          <span className="ml-auto text-xs text-[#B48EAD] italic hidden sm:block truncate max-w-[200px] font-sans">
             // {description}
           </span>
         )}
@@ -77,7 +77,7 @@ const FileTreeItem = ({ name, type = 'file', children, description, level = 0 })
 };
 
 const NoteCard = ({ title, points }) => (
-  <div className="p-6 rounded-lg bg-white border border-[#E5E9F0] shadow-sm h-full hover:border-[#81A1C1] transition-colors">
+  <div className="p-6 rounded-lg bg-white border border-[#D8DEE9] shadow-sm h-full hover:border-[#81A1C1] transition-colors">
     <div className="flex items-center gap-2 mb-4 font-bold text-lg font-sans text-[#2E3440]">
       <Coffee className="text-[#B48EAD]" size={20} />
       {title}
@@ -112,7 +112,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[#ECF0F1] text-[#2E3440] font-sans">
-      {/* Header - Matte White */}
+      {/* Header */}
       <header className="bg-[#ECF0F1]/95 backdrop-blur border-b border-[#D8DEE9] sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 font-bold text-xl text-[#2E3440] tracking-tight hover:opacity-80 transition-opacity">
@@ -162,7 +162,7 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-6">
           <div className="text-center mb-16">
             <h2 className="text-3xl font-bold text-[#2E3440] mb-4">通关路线图</h2>
-            <div className="h-1 w-16 bg-[#88C0D0] mx-auto rounded-full opacity-80"></div>
+            <div className="h-1 w-16 bg-[#5E81AC] mx-auto rounded-full opacity-80"></div>
           </div>
           
           <div className="relative">

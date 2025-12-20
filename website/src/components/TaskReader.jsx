@@ -6,16 +6,16 @@ import { nord } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Menu, X, ChevronDown, ChevronRight, Home, Github } from 'lucide-react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 
-// Enhanced slugify function to handle more characters including dots and spaces properly
+// Enhanced slugify function
 const slugify = (text) => {
   return text
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-')           // Replace spaces with -
-    .replace(/[^\w\u4e00-\u9fa5\-\.]+/g, '') // Remove all non-word chars except Chinese, -, and .
-    .replace(/\-\s*-\s*/g, '-')         // Replace multiple - with single -
-    .replace(/^-+/, '')             // Trim - from start of text
-    .replace(/-+$/, '');            // Trim - from end of text
+    .replace(/\s+/g, '-')           
+    .replace(/[^\w\u4e00-\u9fa5\-\.]+/g, '') 
+    .replace(/\-\s*-\s*/g, '-')         
+    .replace(/^-+/, '')             
+    .replace(/-+$/, '');            
 };
 
 export default function TaskReader() {
@@ -251,7 +251,7 @@ export default function TaskReader() {
 
       {/* Main Content Area */}
       <div 
-        className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-[#eceff4]" 
+        className="flex-1 h-full overflow-y-auto relative scroll-smooth bg-[#eceff4]"
         id="scroll-container"
         ref={scrollContainerRef}
       >
