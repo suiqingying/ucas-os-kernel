@@ -108,6 +108,25 @@ export default function Home() {
     return '#';
   };
 
+  const scrollToSection = (id, e) => {
+    e.preventDefault();
+    const element = document.getElementById(id);
+    if (element) {
+      // Offset for sticky header
+      const headerOffset = 80;
+      const elementPosition = element.getBoundingClientRect().top;
+      const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+
+      window.scrollTo({
+        top: offsetPosition,
+        behavior: "smooth"
+      });
+      
+      // Update hash without jumping
+      window.history.pushState(null, null, `#${id}`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#eceff4] text-[#2e3440]">
       {/* Header */}
@@ -118,9 +137,9 @@ export default function Home() {
             <span>UCAS<span className="text-[#5e81ac]">OS</span> Guide</span>
           </Link>
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-[#4c566a]">
-            <a href="#roadmap" className="hover:text-[#5e81ac] transition-colors">学习路线</a>
-            <a href="#structure" className="hover:text-[#5e81ac] transition-colors">代码架构</a>
-            <a href="#tips" className="hover:text-[#5e81ac] transition-colors">避坑指南</a>
+            <a href="#roadmap" onClick={(e) => scrollToSection('roadmap', e)} className="hover:text-[#5e81ac] transition-colors cursor-pointer">学习路线</a>
+            <a href="#structure" onClick={(e) => scrollToSection('structure', e)} className="hover:text-[#5e81ac] transition-colors cursor-pointer">代码架构</a>
+            <a href="#tips" onClick={(e) => scrollToSection('tips', e)} className="hover:text-[#5e81ac] transition-colors cursor-pointer">避坑指南</a>
             <a href="https://github.com/suiqingying/ucas-os-kernel" target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-[#2e3440] hover:bg-[#3b4252] text-white px-4 py-2 rounded-full transition-all shadow-md">
               <Github size={16} />
               <span>GitHub</span>
@@ -146,9 +165,10 @@ export default function Home() {
           </p>
 
           <div className="flex flex-col sm:flex-row justify-center gap-4">
-             <a href="#roadmap" className="px-8 py-3 bg-[#5e81ac] hover:bg-[#81a1c1] text-white rounded-lg font-medium shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2">
+             {/* Start Reading Button -> Scrolls to Roadmap */}
+             <button onClick={(e) => scrollToSection('roadmap', e)} className="px-8 py-3 bg-[#5e81ac] hover:bg-[#81a1c1] text-white rounded-lg font-medium shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer">
                <BookOpen size={18} /> 开始阅读
-             </a>
+             </button>
              <a href="https://github.com/suiqingying/ucas-os-kernel" target="_blank" rel="noreferrer" className="px-8 py-3 bg-white hover:bg-[#e5e9f0] text-[#2e3440] border border-[#d8dee9] rounded-lg font-medium shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2">
                <Star size={18} className="text-[#bf616a]" /> 给仓库点个 Star
              </a>
