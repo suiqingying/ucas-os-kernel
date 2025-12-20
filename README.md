@@ -5,7 +5,7 @@
 [![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-Live-success?style=for-the-badge&logo=github)](https://suiqingying.github.io/ucas-os-kernel/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge)](LICENSE)
 
-**[👉 点击立即开始阅读在线文档 👈](https://suiqingying.github.io/ucas-os-kernel/)**
+**[👉 点击立即开始阅读在线文档 👈](https://suiqingying.github.io/UCAS-OSLab-Kernel/)**
 
 ---
 
@@ -38,7 +38,7 @@
 
 不要直接阅读 Markdown 源码！请访问我们构建好的在线文档，获得最佳体验：
 
-**[https://suiqingying.github.io/ucas-os-kernel/](https://suiqingying.github.io/ucas-os-kernel/)**
+**[https://suiqingying.github.io/UCAS-OSLab-Kernel/](https://suiqingying.github.io/UCAS-OSLab-Kernel/)**
 
 ## 🤝 贡献与反馈
 
