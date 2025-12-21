@@ -173,6 +173,7 @@ export default function Home() {
               <TimelineItem phase="Prj3" title="进程与调度" tags={['PCB', 'Scheduler']} link={`/read/page-03`} index={3} />
               <TimelineItem phase="Prj4" title="虚拟内存" tags={['Sv39', 'Page Table']} link={`/read/page-04`} index={4} />
               <TimelineItem phase="Prj5" title="网络驱动" tags={['E1000', 'TCP/IP']} link={`/read/page-05`} index={5} />
+              <TimelineItem phase="Prj6" title="文件系统" tags={['inode', 'directory', 'I/O']} link={`/read/page-06`} index={6} />
              </div>
           </div>
         </div>

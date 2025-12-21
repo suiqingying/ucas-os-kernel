@@ -34,5 +34,11 @@
     "fileName": "page-05.md",
     "title": "Project 5 设备驱动",
     "path": "/notes/page-05.md"
+  },
+  {
+    "id": "page-06",
+    "fileName": "page-06.md",
+    "title": "Project 6 文件系统",
+    "path": "/notes/page-06.md"
   }
 ]
