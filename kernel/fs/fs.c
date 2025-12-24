@@ -18,6 +18,15 @@
 
 #define ROOT_INO 0
 
+#define FS_LOG(fmt, ...)                                              \
+    do {                                                              \
+        if (current_running && current_running->pid > 0) {            \
+            printu(fmt, ##__VA_ARGS__);                               \
+        } else {                                                      \
+            printk(fmt, ##__VA_ARGS__);                               \
+        }                                                             \
+    } while (0)
+
 static superblock_t superblock;
 static uint8_t *inode_bitmap;
 static uint8_t *block_bitmap;
@@ -1051,9 +1060,9 @@ int do_mkfs(void)
     fs_create_vm_file();
     cache_flush_all();
 
-    printu("[mkfs] fs_size=%uMB, start_sector=0x%x\n", (FS_TOTAL_SECTORS * SECTOR_SIZE) / (1024 * 1024), FS_START_SECTOR);
-    printu("[mkfs] inode_bitmap_block=%u, block_bitmap_block=%u\n", INODE_BITMAP_START, BLOCK_BITMAP_START);
-    printu("[mkfs] inode_table_block=%u, data_block_start=%u\n", INODE_TABLE_START, DATA_BLOCK_START);
+    FS_LOG("[mkfs] fs_size=%uMB, start_sector=0x%x\n", (FS_TOTAL_SECTORS * SECTOR_SIZE) / (1024 * 1024), FS_START_SECTOR);
+    FS_LOG("[mkfs] inode_bitmap_block=%u, block_bitmap_block=%u\n", INODE_BITMAP_START, BLOCK_BITMAP_START);
+    FS_LOG("[mkfs] inode_table_block=%u, data_block_start=%u\n", INODE_TABLE_START, DATA_BLOCK_START);
 
     fs_ready = 1;
     return 0;
