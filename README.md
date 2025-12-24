@@ -123,7 +123,6 @@
 
 ### 4. 测试建议
 
-- 读缓存：重复读同一文件观察性能差异
-- 元数据缓存：大量空文件 + ls -l 的延迟对比
-- 写策略：断电场景比较 write back 与 write through
-
+- 读缓存：`exec cache_read init 32` 生成 32MB 文件，重启后 `exec cache_read` 对比 read-1/read-2 ticks
+- 元数据缓存：`exec meta_bench 5000` 创建/查找 5000 文件，对比 lookup-1/lookup-2 ticks
+- 写策略：`vm wb 30` 后运行 `exec write_policy 8` 立即断电，再用 `vm wt` 重复并对比持久化结果
