@@ -77,16 +77,39 @@ static void print_ticks(const char *label, long ticks)
 int main(int argc, char **argv)
 {
     int count = DEFAULT_COUNT;
+    int mode_init = 0;
+    int arg_idx = 1;
+
     if (argc >= 2) {
-        int val = atoi(argv[1]);
+        if (strcmp(argv[1], "init") == 0) {
+            mode_init = 1;
+            arg_idx = 2;
+        } else if (strcmp(argv[1], "run") == 0) {
+            mode_init = 0;
+            arg_idx = 2;
+        }
+    }
+    if (argc > arg_idx) {
+        int val = atoi(argv[arg_idx]);
         if (val > 0) {
             count = val;
         }
     }
 
     sys_mkdir("/benchmeta");
-    printf("Create %d files under /benchmeta ...\n", count);
-    create_files(count);
+    if (mode_init) {
+        printf("Create %d files under /benchmeta ...\n", count);
+        create_files(count);
+        printf("Init done. Reboot for cold cache test.\n");
+        return 0;
+    }
+
+    int fd = sys_open("/benchmeta/f0", O_RDONLY);
+    if (fd < 0) {
+        printf("Error: /benchmeta not initialized. Run: exec meta_bench init %d\n", count);
+        return 0;
+    }
+    sys_close(fd);
 
     long t1 = open_pass(count);
     long t2 = open_pass(count);
