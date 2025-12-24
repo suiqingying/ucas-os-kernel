@@ -231,7 +231,7 @@ void e1000_handle_irq(void) {
     if (icr & E1000_ICR_RXDMT0) {
         e1000_handle_rxdmt0();
     }
-    if (icr & E1000_ICR_RXT0) {
-        e1000_handle_rxdmt0();
-    }
+    // if (icr & E1000_ICR_RXT0) {
+    //     e1000_handle_rxdmt0();
+    // }
 }

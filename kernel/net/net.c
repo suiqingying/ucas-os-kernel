@@ -23,6 +23,7 @@
 
 static LIST_HEAD(send_block_queue);
 static LIST_HEAD(recv_block_queue);
+static LIST_HEAD(stream_recv_block_queue);
 
 typedef struct stream_ofo_entry {
     uint32_t seq;
@@ -329,6 +330,10 @@ void net_unblock_recv(void) {
     unblock_all(&recv_block_queue);
 }
 
+void net_unblock_stream_recv(void) {
+    unblock_all(&stream_recv_block_queue);
+}
+
 int do_net_send(void *txpacket, int length) {
     // Transmit one network packet via e1000 device
     int sent;
@@ -388,7 +393,7 @@ int do_net_recv_stream(void *buffer, int *nbytes) {
             break;
         }
 
-        do_block(&current_running->list, &recv_block_queue);
+        do_block(&current_running->list, &stream_recv_block_queue);
         do_scheduler();
     }
 

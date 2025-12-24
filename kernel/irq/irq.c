@@ -30,6 +30,7 @@ void handle_irq_timer(regs_context_t *regs, uint64_t stval, uint64_t scause) {
     bios_set_timer(get_ticks() + TIMER_INTERVAL); // 下一次查询中断的时间
 
     net_stream_timer();
+    net_unblock_stream_recv();
     do_scheduler();
 }
 
