@@ -22,6 +22,8 @@
 // Keep these values synchronized with include/os/mm.h
 #define MAX_SWAP_PAGES 131072 / 64 // Maximum pages that can be swapped (512MB)
 #define SWAP_SECTORS_PER_PAGE 8
+#define FS_START_SECTOR 0x100000  /* 512MB */
+#define FS_TOTAL_SECTORS 0x100000 /* 512MB */
 
 #define NBYTES2SEC(nbytes) (((nbytes) / SECTOR_SIZE) + ((nbytes) % SECTOR_SIZE != 0))
 
@@ -57,6 +59,7 @@ static void write_img_info(int nbytes_kernel, task_info_t *taskinfo,
                            short tasknum, FILE *img, int *taskinfo_addr);
 static void reserve_swap_space(FILE *img, int *phyaddr, int *swap_start_sector);
 static void write_swap_info(FILE *img, int swap_start_sector);
+static void reserve_fs_space(FILE *img, int *phyaddr);
 
 int main(int argc, char **argv)
 {
@@ -189,6 +192,7 @@ static void create_image(int nfiles, char *files[])
     int swap_start_sector = 0;
     reserve_swap_space(img, &phyaddr, &swap_start_sector);
     write_swap_info(img, swap_start_sector);
+    reserve_fs_space(img, &phyaddr);
     fclose(img);
 }
 
@@ -330,6 +334,21 @@ static void write_swap_info(FILE *img, int swap_start_sector)
         printf("swap_start_sector=%d written at offset 0x%x\n",
                swap_start_sector, SWAP_INFO_LOC);
     }
+}
+
+static void reserve_fs_space(FILE *img, int *phyaddr)
+{
+    long long fs_end = (long long)(FS_START_SECTOR + FS_TOTAL_SECTORS) * SECTOR_SIZE;
+    if (fs_end <= *phyaddr) {
+        return;
+    }
+    fseek(img, fs_end - 1, SEEK_SET);
+    fputc(0, img);
+    *phyaddr = (int)fs_end;
+    printf("Reserved fs space: sectors [0x%x, 0x%x), size=%lld bytes (~%lld MB)\n",
+           FS_START_SECTOR, FS_START_SECTOR + FS_TOTAL_SECTORS,
+           fs_end - (long long)FS_START_SECTOR * SECTOR_SIZE,
+           (fs_end - (long long)FS_START_SECTOR * SECTOR_SIZE) / (1024 * 1024));
 }
 
 /* print an error message and exit */
