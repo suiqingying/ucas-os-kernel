@@ -1,27 +1,31 @@
-#include <asm.h>
-#include <asm/unistd.h>
 #include <assert.h>
 #include <common.h>
+#include <type.h>
+
+#include <asm.h>
+#include <asm/unistd.h>
 #include <csr.h>
-#include <e1000.h>
+#include <pgtable.h>
+#include <plic.h>
+
 #include <os/ioremap.h>
 #include <os/irq.h>
 #include <os/kernel.h>
-#include <os/net.h>
 #include <os/loader.h>
 #include <os/lock.h>
 #include <os/mm.h>
+#include <os/net.h>
 #include <os/sched.h>
 #include <os/smp.h>
 #include <os/string.h>
 #include <os/task.h>
 #include <os/time.h>
-#include <pgtable.h>
+
+#include <sys/syscall.h>
+
+#include <e1000.h>
 #include <printk.h>
 #include <screen.h>
-#include <sys/syscall.h>
-#include <type.h>
-#include <plic.h>
 extern void ret_from_exception();
 
 static void cancel_identity_mapping(void) {
