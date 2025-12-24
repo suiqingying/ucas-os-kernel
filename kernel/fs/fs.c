@@ -29,6 +29,7 @@ int page_cache_policy = PAGE_CACHE_WRITE_BACK;
 int write_back_freq = 30;
 
 static uint8_t io_block[BLOCK_SIZE];
+static uint8_t io_block2[BLOCK_SIZE];
 
 static inline uint32_t block_to_sector(uint32_t block)
 {
@@ -233,7 +234,9 @@ static int inode_get_block(inode_t *inode, uint32_t file_block, int alloc)
     }
 
     uint32_t index = file_block - INODE_DIRECT_COUNT;
-    if (index >= INODE_INDIRECT_COUNT) {
+    uint32_t l1 = index / INODE_INDIRECT_COUNT;
+    uint32_t l2 = index % INODE_INDIRECT_COUNT;
+    if (l1 >= INODE_INDIRECT_COUNT) {
         return -1;
     }
 
@@ -251,19 +254,35 @@ static int inode_get_block(inode_t *inode, uint32_t file_block, int alloc)
     }
 
     fs_read_block(inode->indirect, io_block);
-    uint32_t *entries = (uint32_t *)io_block;
-    if (entries[index] == 0 && alloc) {
+    uint32_t *level1 = (uint32_t *)io_block;
+    if (level1[l1] == 0) {
+        if (!alloc) {
+            return -1;
+        }
         int block = alloc_block();
         if (block < 0) {
             return -1;
         }
-        entries[index] = (uint32_t)block;
+        level1[l1] = (uint32_t)block;
         fs_write_block(inode->indirect, io_block);
+        memset(io_block2, 0, sizeof(io_block2));
+        fs_write_block((uint32_t)block, io_block2);
+    }
+
+    fs_read_block(level1[l1], io_block2);
+    uint32_t *level2 = (uint32_t *)io_block2;
+    if (level2[l2] == 0 && alloc) {
+        int block = alloc_block();
+        if (block < 0) {
+            return -1;
+        }
+        level2[l2] = (uint32_t)block;
+        fs_write_block(level1[l1], io_block2);
         memset(io_block, 0, sizeof(io_block));
         fs_write_block((uint32_t)block, io_block);
     }
 
-    return entries[index] ? (int)entries[index] : -1;
+    return level2[l2] ? (int)level2[l2] : -1;
 }
 
 static int file_read(inode_t *inode, uint32_t offset, void *buf, uint32_t len)
@@ -305,7 +324,7 @@ static int file_write(inode_t *inode, uint32_t offset, const void *buf, uint32_t
 {
     const uint8_t *src = (const uint8_t *)buf;
     uint32_t written = 0;
-    uint32_t end = offset + len;
+    uint32_t start = offset;
     while (written < len) {
         uint32_t file_block = offset / BLOCK_SIZE;
         uint32_t block_off = offset % BLOCK_SIZE;
@@ -328,11 +347,41 @@ static int file_write(inode_t *inode, uint32_t offset, const void *buf, uint32_t
         written += chunk;
     }
 
-    if (end > inode->size) {
-        inode->size = end;
+    if (start + written > inode->size) {
+        inode->size = start + written;
     }
 
     return (int)written;
+}
+
+static void free_inode_blocks(inode_t *inode)
+{
+    for (int i = 0; i < INODE_DIRECT_COUNT; i++) {
+        if (inode->direct[i]) {
+            free_block(inode->direct[i]);
+            inode->direct[i] = 0;
+        }
+    }
+
+    if (inode->indirect) {
+        fs_read_block(inode->indirect, io_block);
+        uint32_t *level1 = (uint32_t *)io_block;
+        for (uint32_t i = 0; i < INODE_INDIRECT_COUNT; i++) {
+            if (!level1[i]) {
+                continue;
+            }
+            fs_read_block(level1[i], io_block2);
+            uint32_t *level2 = (uint32_t *)io_block2;
+            for (uint32_t j = 0; j < INODE_INDIRECT_COUNT; j++) {
+                if (level2[j]) {
+                    free_block(level2[j]);
+                }
+            }
+            free_block(level1[i]);
+        }
+        free_block(inode->indirect);
+        inode->indirect = 0;
+    }
 }
 
 static int dir_lookup(uint32_t dir_ino, const char *name, uint32_t *ino_out, uint8_t *type_out)
@@ -784,23 +833,7 @@ int do_rmdir(char *path)
     }
 
     inode_t *inode = inode_get(ino);
-    for (int i = 0; i < INODE_DIRECT_COUNT; i++) {
-        if (inode->direct[i]) {
-            free_block(inode->direct[i]);
-            inode->direct[i] = 0;
-        }
-    }
-    if (inode->indirect) {
-        fs_read_block(inode->indirect, io_block);
-        uint32_t *entries = (uint32_t *)io_block;
-        for (uint32_t i = 0; i < INODE_INDIRECT_COUNT; i++) {
-            if (entries[i]) {
-                free_block(entries[i]);
-            }
-        }
-        free_block(inode->indirect);
-        inode->indirect = 0;
-    }
+    free_inode_blocks(inode);
     inode_reset(inode);
     bitmap_clear(inode_bitmap, ino);
 
@@ -859,52 +892,199 @@ int do_ls(char *path, int option)
     return 0;
 }
 
+static fdesc_t *fdesc_get(int fd)
+{
+    if (fd < 0 || fd >= NUM_FDESCS) {
+        return NULL;
+    }
+    fdesc_t *desc = &fdesc_array[fd];
+    if (!desc->used || desc->owner != current_running->pid) {
+        return NULL;
+    }
+    return desc;
+}
+
+static int fdesc_alloc(int mode, uint32_t ino)
+{
+    for (int i = 0; i < NUM_FDESCS; i++) {
+        if (!fdesc_array[i].used) {
+            fdesc_array[i].used = 1;
+            fdesc_array[i].mode = mode;
+            fdesc_array[i].ino = ino;
+            fdesc_array[i].offset = 0;
+            fdesc_array[i].owner = current_running->pid;
+            return i;
+        }
+    }
+    return -1;
+}
+
 int do_open(char *path, int mode)
 {
-    (void)path;
-    (void)mode;
-    return -1;
+    uint32_t ino = 0;
+    if (path_resolve(path, &ino) != 0) {
+        if (!(mode & O_WRONLY)) {
+            return -1;
+        }
+        uint32_t parent = 0;
+        char name[DENTRY_NAME_LEN + 1];
+        if (path_parent(path, &parent, name) != 0) {
+            return -1;
+        }
+        int new_ino = alloc_inode();
+        if (new_ino < 0) {
+            return -1;
+        }
+        inode_t *inode = inode_get((uint32_t)new_ino);
+        inode_reset(inode);
+        inode->type = INODE_TYPE_FILE;
+        inode->links = 1;
+        inode->flags = 0;
+        inode->size = 0;
+        if (dir_add_entry(parent, name, (uint32_t)new_ino, INODE_TYPE_FILE) != 0) {
+            return -1;
+        }
+        fs_sync_metadata();
+        return fdesc_alloc(mode, (uint32_t)new_ino);
+    }
+
+    inode_t *inode = inode_get(ino);
+    if (!inode || inode->type != INODE_TYPE_FILE) {
+        return -1;
+    }
+    return fdesc_alloc(mode, ino);
 }
 
 int do_read(int fd, char *buff, int length)
 {
-    (void)fd;
-    (void)buff;
-    (void)length;
-    return -1;
+    fdesc_t *desc = fdesc_get(fd);
+    if (!desc || !(desc->mode & O_RDONLY)) {
+        return -1;
+    }
+    inode_t *inode = inode_get(desc->ino);
+    if (!inode) {
+        return -1;
+    }
+    int read_bytes = file_read(inode, desc->offset, buff, (uint32_t)length);
+    if (read_bytes > 0) {
+        desc->offset += (uint32_t)read_bytes;
+    }
+    return read_bytes;
 }
 
 int do_write(int fd, char *buff, int length)
 {
-    (void)fd;
-    (void)buff;
-    (void)length;
-    return -1;
+    fdesc_t *desc = fdesc_get(fd);
+    if (!desc || !(desc->mode & O_WRONLY)) {
+        return -1;
+    }
+    inode_t *inode = inode_get(desc->ino);
+    if (!inode) {
+        return -1;
+    }
+    int written = file_write(inode, desc->offset, buff, (uint32_t)length);
+    if (written > 0) {
+        desc->offset += (uint32_t)written;
+        fs_sync_inode_table();
+        fs_sync_block_bitmap();
+    }
+    return written;
 }
 
 int do_close(int fd)
 {
-    (void)fd;
-    return -1;
+    fdesc_t *desc = fdesc_get(fd);
+    if (!desc) {
+        return -1;
+    }
+    desc->used = 0;
+    desc->ino = 0;
+    desc->offset = 0;
+    desc->mode = 0;
+    desc->owner = 0;
+    return 0;
 }
 
 int do_ln(char *src_path, char *dst_path)
 {
-    (void)src_path;
-    (void)dst_path;
-    return -1;
+    uint32_t src_ino = 0;
+    if (path_resolve(src_path, &src_ino) != 0) {
+        return -1;
+    }
+    inode_t *inode = inode_get(src_ino);
+    if (!inode || inode->type != INODE_TYPE_FILE) {
+        return -1;
+    }
+    uint32_t parent = 0;
+    char name[DENTRY_NAME_LEN + 1];
+    if (path_parent(dst_path, &parent, name) != 0) {
+        return -1;
+    }
+    if (dir_add_entry(parent, name, src_ino, INODE_TYPE_FILE) != 0) {
+        return -1;
+    }
+    inode->links++;
+    fs_sync_inode_table();
+    fs_sync_inode_bitmap();
+    return 0;
 }
 
 int do_rm(char *path)
 {
-    (void)path;
-    return -1;
+    uint32_t parent = 0;
+    char name[DENTRY_NAME_LEN + 1];
+    if (path_parent(path, &parent, name) != 0) {
+        return -1;
+    }
+    uint32_t ino = 0;
+    uint8_t type = 0;
+    if (dir_lookup(parent, name, &ino, &type) != 0 || type != INODE_TYPE_FILE) {
+        return -1;
+    }
+    if (dir_remove_entry(parent, name, NULL, NULL) != 0) {
+        return -1;
+    }
+    inode_t *inode = inode_get(ino);
+    if (!inode) {
+        return -1;
+    }
+    if (inode->links > 0) {
+        inode->links--;
+    }
+    if (inode->links == 0) {
+        free_inode_blocks(inode);
+        inode_reset(inode);
+        bitmap_clear(inode_bitmap, ino);
+        fs_sync_block_bitmap();
+        fs_sync_inode_bitmap();
+    }
+    fs_sync_inode_table();
+    return 0;
 }
 
 int do_lseek(int fd, int offset, int whence)
 {
-    (void)fd;
-    (void)offset;
-    (void)whence;
-    return -1;
+    fdesc_t *desc = fdesc_get(fd);
+    if (!desc) {
+        return -1;
+    }
+    inode_t *inode = inode_get(desc->ino);
+    if (!inode) {
+        return -1;
+    }
+    int new_offset = 0;
+    if (whence == SEEK_SET) {
+        new_offset = offset;
+    } else if (whence == SEEK_CUR) {
+        new_offset = (int)desc->offset + offset;
+    } else if (whence == SEEK_END) {
+        new_offset = (int)inode->size + offset;
+    } else {
+        return -1;
+    }
+    if (new_offset < 0) {
+        return -1;
+    }
+    desc->offset = (uint32_t)new_offset;
+    return new_offset;
 }

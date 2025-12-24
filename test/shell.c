@@ -231,6 +231,48 @@ int main(void) {
                 path = argv[1];
             }
             sys_ls(path, option);
+        } else if (strcmp(argv[0], "touch") == 0) {
+            if (argc < 2) {
+                printf("Error: touch needs a file name\n");
+            } else {
+                int fd = sys_open(argv[1], O_WRONLY);
+                if (fd >= 0) {
+                    sys_close(fd);
+                } else {
+                    printf("Error: touch %s failed\n", argv[1]);
+                }
+            }
+        } else if (strcmp(argv[0], "cat") == 0) {
+            if (argc < 2) {
+                printf("Error: cat needs a file name\n");
+            } else {
+                int fd = sys_open(argv[1], O_RDONLY);
+                if (fd < 0) {
+                    printf("Error: cat %s failed\n", argv[1]);
+                } else {
+                    char buf[64];
+                    int n = 0;
+                    while ((n = sys_read(fd, buf, sizeof(buf))) > 0) {
+                        for (int i = 0; i < n; i++) {
+                            printf("%c", buf[i]);
+                        }
+                    }
+                    printf("\n");
+                    sys_close(fd);
+                }
+            }
+        } else if (strcmp(argv[0], "ln") == 0) {
+            if (argc < 3) {
+                printf("Error: ln needs src and dst\n");
+            } else if (sys_ln(argv[1], argv[2]) != 0) {
+                printf("Error: ln %s %s failed\n", argv[1], argv[2]);
+            }
+        } else if (strcmp(argv[0], "rm") == 0) {
+            if (argc < 2) {
+                printf("Error: rm needs a path\n");
+            } else if (sys_rm(argv[1]) != 0) {
+                printf("Error: rm %s failed\n", argv[1]);
+            }
         } else {
             printf("Error: Unknown command %s\n", buff);
         }
