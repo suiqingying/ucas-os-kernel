@@ -657,7 +657,7 @@ static int dir_add_entry(uint32_t dir_ino, const char *name, uint32_t ino, uint8
         if (file_read(dir, offset, &entry, sizeof(entry)) != sizeof(entry)) {
             return -1;
         }
-        if (entry.ino == 0) {
+        if (entry.ino == 0 && entry.name[0] == '\0') {
             break;
         }
         offset += sizeof(dentry_t);
@@ -731,6 +731,9 @@ static int dir_is_empty(uint32_t dir_ino)
 
 static int dir_get_parent(uint32_t dir_ino)
 {
+    if (dir_ino == ROOT_INO) {
+        return (int)ROOT_INO;
+    }
     inode_t *dir = inode_get(dir_ino);
     if (!dir || dir->type != INODE_TYPE_DIR) {
         return -1;
