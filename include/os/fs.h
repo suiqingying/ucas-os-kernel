@@ -90,6 +90,7 @@ extern int write_back_freq;
 extern int do_mkfs(void);
 extern int do_statfs(void);
 extern void fs_init(void);
+extern void fs_cache_tick(void);
 extern int do_cd(char *path);
 extern int do_mkdir(char *path);
 extern int do_rmdir(char *path);

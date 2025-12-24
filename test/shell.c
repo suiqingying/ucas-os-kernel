@@ -38,6 +38,26 @@
 #define MAX_BUFF_LEN 256
 
 char argv[MAX_ARG_NUM][MAX_ARG_LEN];
+
+static int int_to_str(int value, char *out)
+{
+    if (value <= 0) {
+        out[0] = '0';
+        out[1] = '\0';
+        return 1;
+    }
+    char tmp[16];
+    int len = 0;
+    while (value > 0 && len < (int)sizeof(tmp)) {
+        tmp[len++] = (char)('0' + (value % 10));
+        value /= 10;
+    }
+    for (int i = 0; i < len; i++) {
+        out[i] = tmp[len - 1 - i];
+    }
+    out[len] = '\0';
+    return len;
+}
 char buff[MAX_BUFF_LEN];
 
 int parse_arg(const char *buff) {
@@ -259,6 +279,56 @@ int main(void) {
                     }
                     printf("\n");
                     sys_close(fd);
+                }
+            }
+        } else if (strcmp(argv[0], "vm") == 0) {
+            if (argc == 1) {
+                int fd = sys_open("/proc/sys/vm", O_RDONLY);
+                if (fd < 0) {
+                    printf("Error: vm read failed\n");
+                } else {
+                    char buf[64];
+                    int n = 0;
+                    while ((n = sys_read(fd, buf, sizeof(buf))) > 0) {
+                        for (int i = 0; i < n; i++) {
+                            printf("%c", buf[i]);
+                        }
+                    }
+                    printf("\n");
+                    sys_close(fd);
+                }
+            } else {
+                const char *policy = NULL;
+                if (strcmp(argv[1], "wb") == 0) {
+                    policy = "write back";
+                } else if (strcmp(argv[1], "wt") == 0) {
+                    policy = "write through";
+                }
+                if (!policy) {
+                    printf("Error: vm expects wb or wt\n");
+                } else {
+                    int freq = 30;
+                    if (argc >= 3) {
+                        int val = atoi(argv[2]);
+                        if (val > 0) {
+                            freq = val;
+                        }
+                    }
+                    int fd = sys_open("/proc/sys/vm", O_WRONLY);
+                    if (fd < 0) {
+                        printf("Error: vm write failed\n");
+                    } else {
+                        char num[16];
+                        int num_len = int_to_str(freq, num);
+                        const char *line1 = "page_cache_policy = ";
+                        const char *line2 = "\nwrite_back_freq = ";
+                        sys_write(fd, (char *)line1, (int)strlen(line1));
+                        sys_write(fd, policy, (int)strlen(policy));
+                        sys_write(fd, (char *)line2, (int)strlen(line2));
+                        sys_write(fd, num, num_len);
+                        sys_write(fd, "\n", 1);
+                        sys_close(fd);
+                    }
                 }
             }
         } else if (strcmp(argv[0], "ln") == 0) {
