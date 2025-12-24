@@ -11,6 +11,7 @@
 #include <os/ioremap.h>
 #include <os/irq.h>
 #include <os/kernel.h>
+#include <os/fs.h>
 #include <os/loader.h>
 #include <os/lock.h>
 #include <os/mm.h>
@@ -200,6 +201,12 @@ static void init_syscall(void) {
     syscall[SYSCALL_NET_SEND] = (long (*)())do_net_send;
     syscall[SYSCALL_NET_RECV] = (long (*)())do_net_recv;
     syscall[SYSCALL_NET_RECV_STREAM] = (long (*)())do_net_recv_stream;
+    syscall[SYSCALL_FS_MKFS] = (long (*)())do_mkfs;
+    syscall[SYSCALL_FS_STATFS] = (long (*)())do_statfs;
+    syscall[SYSCALL_FS_CD] = (long (*)())do_cd;
+    syscall[SYSCALL_FS_MKDIR] = (long (*)())do_mkdir;
+    syscall[SYSCALL_FS_RMDIR] = (long (*)())do_rmdir;
+    syscall[SYSCALL_FS_LS] = (long (*)())do_ls;
 }
 /************************************************************/
 
@@ -239,6 +246,7 @@ int main() {
         init_syscall();    // Init system call table (0_0)
         init_screen();     // Init screen (QAQ)
         init_swap();       // Init swap mechanism (◕‿◕✿)
+        fs_init();         // Init file system (P6)
         printk("> [INIT] All global initializations done.\n");
         printk("> [INIT] CPU time_base: %lu Hz\n", time_base);
 

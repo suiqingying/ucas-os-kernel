@@ -13,10 +13,10 @@
 pcb_t pcb[NUM_MAX_TASK];
 const ptr_t pid0_stack = INIT_KERNEL_STACK + PAGE_SIZE;
 pcb_t pid0_pcb = {
-    .pid = 0, .tgid = 0, .kernel_sp = (ptr_t)pid0_stack, .user_sp = (ptr_t)pid0_stack, .kernel_stack_base = 0, .user_stack_base = 0, .status = TASK_RUNNING, .thread_ret = NULL, .allocated_pages = 0};
+    .pid = 0, .tgid = 0, .kernel_sp = (ptr_t)pid0_stack, .user_sp = (ptr_t)pid0_stack, .kernel_stack_base = 0, .user_stack_base = 0, .status = TASK_RUNNING, .thread_ret = NULL, .allocated_pages = 0, .cwd_ino = 0};
 const ptr_t s_pid0_stack = INIT_KERNEL_STACK + 2 * PAGE_SIZE; // S_KERNEL_STACK_TOP from head.S
 pcb_t s_pid0_pcb = {
-    .pid = -1, .tgid = -1, .kernel_sp = (ptr_t)s_pid0_stack, .user_sp = (ptr_t)s_pid0_stack, .kernel_stack_base = 0, .user_stack_base = 0, .status = TASK_RUNNING, .thread_ret = NULL, .allocated_pages = 0};
+    .pid = -1, .tgid = -1, .kernel_sp = (ptr_t)s_pid0_stack, .user_sp = (ptr_t)s_pid0_stack, .kernel_stack_base = 0, .user_stack_base = 0, .status = TASK_RUNNING, .thread_ret = NULL, .allocated_pages = 0, .cwd_ino = 0};
 LIST_HEAD(ready_queue);
 LIST_HEAD(sleep_queue);
 
@@ -277,6 +277,7 @@ pid_t do_exec(char *name, int argc, char *argv[]) {
     }
     // 初始化内存页面计数
     new_pcb->allocated_pages = 0;
+    new_pcb->cwd_ino = current_running->cwd_ino;
     // 初始化链表
     init_list_head(&new_pcb->list);
     new_pcb->wait_list.prev = new_pcb->wait_list.next = &new_pcb->wait_list;
@@ -327,6 +328,7 @@ pid_t do_thread_create(ptr_t entry_point, ptr_t arg) {
     }
     // 初始化内存页面计数
     new_pcb->allocated_pages = 0;
+    new_pcb->cwd_ino = current_running->cwd_ino;
 
     init_thread_stack(new_pcb->kernel_sp, new_pcb->user_sp, entry_point, new_pcb, arg);
     add_node_to_q(&new_pcb->list, &ready_queue);

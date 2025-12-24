@@ -35,8 +35,8 @@ void sys_move_cursor(int x, int y) {
     invoke_syscall(SYSCALL_CURSOR, (long)x, (long)y, IGNORE, IGNORE, IGNORE);
 }
 
-void sys_write(char *buff) {
-    /* call invoke_syscall to implement sys_write */
+void sys_screen_write(char *buff) {
+    /* call invoke_syscall to implement sys_screen_write */
     invoke_syscall(SYSCALL_WRITE, (long)buff, IGNORE, IGNORE, IGNORE, IGNORE);
 }
 
@@ -252,39 +252,33 @@ int sys_net_recv_stream(void *buffer, int *nbytes) {
 
 int sys_mkfs(void)
 {
-    // TODO [P6-task1]: Implement sys_mkfs
-    return 0;  // sys_mkfs succeeds
+    return invoke_syscall(SYSCALL_FS_MKFS, IGNORE, IGNORE, IGNORE, IGNORE, IGNORE);
 }
 
 int sys_statfs(void)
 {
-    // TODO [P6-task1]: Implement sys_statfs
-    return 0;  // sys_statfs succeeds
+    return invoke_syscall(SYSCALL_FS_STATFS, IGNORE, IGNORE, IGNORE, IGNORE, IGNORE);
 }
 
 int sys_cd(char *path)
 {
-    // TODO [P6-task1]: Implement sys_cd
-    return 0;  // sys_cd succeeds
+    return invoke_syscall(SYSCALL_FS_CD, (long)path, IGNORE, IGNORE, IGNORE, IGNORE);
 }
 
 int sys_mkdir(char *path)
 {
-    // TODO [P6-task1]: Implement sys_mkdir
-    return 0;  // sys_mkdir succeeds
+    return invoke_syscall(SYSCALL_FS_MKDIR, (long)path, IGNORE, IGNORE, IGNORE, IGNORE);
 }
 
 int sys_rmdir(char *path)
 {
-    // TODO [P6-task1]: Implement sys_rmdir
-    return 0;  // sys_rmdir succeeds
+    return invoke_syscall(SYSCALL_FS_RMDIR, (long)path, IGNORE, IGNORE, IGNORE, IGNORE);
 }
 
 int sys_ls(char *path, int option)
 {
-    // TODO [P6-task1]: Implement sys_ls
     // Note: argument 'option' serves for 'ls -l' in A-core
-    return 0;  // sys_ls succeeds
+    return invoke_syscall(SYSCALL_FS_LS, (long)path, (long)option, IGNORE, IGNORE, IGNORE);
 }
 
 int sys_open(char *path, int mode)

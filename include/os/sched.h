@@ -105,6 +105,9 @@ typedef struct pcb
 
     /* Memory usage tracking */
     int allocated_pages;      /* Number of physical pages allocated to this process */
+
+    /* current working directory inode */
+    uint32_t cwd_ino;
 } pcb_t;
 
 /* ready queue to run */

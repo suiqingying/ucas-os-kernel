@@ -108,7 +108,7 @@ int main(void) {
                 printf("Info: excute %s successfully, pid = %d\n", argv[1], pid);
                 if (!no_wait) sys_waitpid(pid);
             }
-        } else if (strcmp("ls", argv[0]) == 0) {
+        } else if (strcmp("tasks", argv[0]) == 0) {
             sys_list();
         } else if (strcmp("kill", argv[0]) == 0) {
             int pid = atoi(argv[1]);
@@ -197,16 +197,45 @@ int main(void) {
                 // Default: bytes
                 printf("Free memory: %lu Bytes\n", free_mem);
             }
+        } else if (strcmp(argv[0], "mkfs") == 0) {
+            sys_mkfs();
+        } else if (strcmp(argv[0], "statfs") == 0) {
+            sys_statfs();
+        } else if (strcmp(argv[0], "cd") == 0) {
+            if (argc < 2) {
+                printf("Error: cd needs a path\n");
+            } else if (sys_cd(argv[1]) != 0) {
+                printf("Error: cd %s failed\n", argv[1]);
+            }
+        } else if (strcmp(argv[0], "mkdir") == 0) {
+            if (argc < 2) {
+                printf("Error: mkdir needs a path\n");
+            } else if (sys_mkdir(argv[1]) != 0) {
+                printf("Error: mkdir %s failed\n", argv[1]);
+            }
+        } else if (strcmp(argv[0], "rmdir") == 0) {
+            if (argc < 2) {
+                printf("Error: rmdir needs a path\n");
+            } else if (sys_rmdir(argv[1]) != 0) {
+                printf("Error: rmdir %s failed\n", argv[1]);
+            }
+        } else if (strcmp(argv[0], "ls") == 0) {
+            char *path = ".";
+            int option = 0;
+            if (argc >= 2 && strcmp(argv[1], "-l") == 0) {
+                option = 1;
+                if (argc >= 3) {
+                    path = argv[2];
+                }
+            } else if (argc >= 2) {
+                path = argv[1];
+            }
+            sys_ls(path, option);
         } else {
             printf("Error: Unknown command %s\n", buff);
         }
 
         printf("> root@UCAS_OS: ");
-        /************************************************************/
-        // TODO [P6-task1]: mkfs, statfs, cd, mkdir, rmdir, ls
-
-        // TODO [P6-task2]: touch, cat, ln, ls -l, rm
-        /************************************************************/
     }
 
     return 0;
