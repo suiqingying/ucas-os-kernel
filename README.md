@@ -98,3 +98,32 @@
 - 支持 SEEK_SET / SEEK_CUR / SEEK_END
 - 支持空洞文件，lseek 可跳过中间块
 
+
+## 五、任务三：缓存与 /proc/sys/vm（Task 3）
+
+### 1. 缓存结构
+
+- 以 block 为粒度缓存数据与元数据
+- cache entry 记录 block_id 与 dirty 标记
+
+### 2. write back / write through
+
+- write back：写入缓存，按频率批量刷盘
+- write through：写入缓存同时落盘
+- 从 write back 切换到 write through 时需立即刷盘
+
+### 3. /proc/sys/vm
+
+- 默认文件内容：
+  ```ini
+  page_cache_policy = write back
+  write_back_freq = 30
+  ```
+- 修改 vm 文件后即时生效
+
+### 4. 测试建议
+
+- 读缓存：重复读同一文件观察性能差异
+- 元数据缓存：大量空文件 + ls -l 的延迟对比
+- 写策略：断电场景比较 write back 与 write through
+

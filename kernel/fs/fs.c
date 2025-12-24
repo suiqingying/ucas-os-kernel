@@ -25,6 +25,28 @@ static inode_t *inode_table;
 static fdesc_t fdesc_array[NUM_FDESCS];
 static int fs_ready = 0;
 
+typedef struct cache_entry {
+    uint32_t block;
+    uint8_t *data;
+    int dirty;
+    struct cache_entry *next;
+} cache_entry_t;
+
+#define CACHE_BUCKETS 128
+static cache_entry_t *cache_table[CACHE_BUCKETS];
+static uint64_t cache_last_flush = 0;
+
+typedef struct dcache_entry {
+    uint32_t parent;
+    uint32_t ino;
+    uint8_t type;
+    char name[DENTRY_NAME_LEN + 1];
+    struct dcache_entry *next;
+} dcache_entry_t;
+
+#define DENTRY_CACHE_BUCKETS 128
+static dcache_entry_t *dcache_table[DENTRY_CACHE_BUCKETS];
+
 int page_cache_policy = PAGE_CACHE_WRITE_BACK;
 int write_back_freq = 30;
 
@@ -48,14 +70,116 @@ static int fs_raw_write_block(uint32_t block, const void *buf)
     return bios_sd_write((unsigned)kva2pa((uintptr_t)buf), SECTORS_PER_BLOCK, sector);
 }
 
+static uint32_t cache_hash(uint32_t block)
+{
+    return block % CACHE_BUCKETS;
+}
+
+static cache_entry_t *cache_find(uint32_t block)
+{
+    uint32_t idx = cache_hash(block);
+    cache_entry_t *cur = cache_table[idx];
+    while (cur) {
+        if (cur->block == block) {
+            return cur;
+        }
+        cur = cur->next;
+    }
+    return NULL;
+}
+
+static cache_entry_t *cache_get(uint32_t block)
+{
+    cache_entry_t *entry = cache_find(block);
+    if (entry) {
+        return entry;
+    }
+    entry = (cache_entry_t *)kmalloc(sizeof(cache_entry_t));
+    if (!entry) {
+        return NULL;
+    }
+    entry->data = (uint8_t *)kmalloc(BLOCK_SIZE);
+    if (!entry->data) {
+        return NULL;
+    }
+    if (fs_raw_read_block(block, entry->data) != 0) {
+        memset(entry->data, 0, BLOCK_SIZE);
+    }
+    entry->block = block;
+    entry->dirty = 0;
+    uint32_t idx = cache_hash(block);
+    entry->next = cache_table[idx];
+    cache_table[idx] = entry;
+    return entry;
+}
+
+static void cache_flush_entry(cache_entry_t *entry)
+{
+    if (entry && entry->dirty) {
+        fs_raw_write_block(entry->block, entry->data);
+        entry->dirty = 0;
+    }
+}
+
+static void cache_flush_all(void)
+{
+    for (int i = 0; i < CACHE_BUCKETS; i++) {
+        cache_entry_t *cur = cache_table[i];
+        while (cur) {
+            cache_flush_entry(cur);
+            cur = cur->next;
+        }
+    }
+    cache_last_flush = get_timer();
+}
+
+static void cache_flush_if_needed(void)
+{
+    if (page_cache_policy != PAGE_CACHE_WRITE_BACK || write_back_freq <= 0) {
+        return;
+    }
+    uint64_t now = get_timer();
+    if (cache_last_flush == 0) {
+        cache_last_flush = now;
+        return;
+    }
+    if (now - cache_last_flush >= (uint64_t)write_back_freq) {
+        cache_flush_all();
+    }
+}
+
+static void cache_clear(void)
+{
+    for (int i = 0; i < CACHE_BUCKETS; i++) {
+        cache_table[i] = NULL;
+    }
+    cache_last_flush = 0;
+}
+
 static int fs_read_block(uint32_t block, void *buf)
 {
-    return fs_raw_read_block(block, buf);
+    cache_flush_if_needed();
+    cache_entry_t *entry = cache_get(block);
+    if (!entry) {
+        return -1;
+    }
+    memcpy(buf, entry->data, BLOCK_SIZE);
+    return 0;
 }
 
 static int fs_write_block(uint32_t block, const void *buf)
 {
-    return fs_raw_write_block(block, buf);
+    cache_flush_if_needed();
+    cache_entry_t *entry = cache_get(block);
+    if (!entry) {
+        return -1;
+    }
+    memcpy(entry->data, buf, BLOCK_SIZE);
+    entry->dirty = 1;
+    if (page_cache_policy == PAGE_CACHE_WRITE_THROUGH) {
+        cache_flush_entry(entry);
+    }
+    return 0;
 }
 
 static inline int bitmap_test(uint8_t *bitmap, uint32_t idx)
@@ -384,11 +508,101 @@ static void free_inode_blocks(inode_t *inode)
     }
 }
 
+static uint32_t dcache_hash(uint32_t parent, const char *name)
+{
+    uint32_t h = parent;
+    for (int i = 0; name[i] != '\0'; i++) {
+        h = h * 131u + (uint8_t)name[i];
+    }
+    return h % DENTRY_CACHE_BUCKETS;
+}
+
+static int dcache_lookup(uint32_t parent, const char *name, uint32_t *ino_out, uint8_t *type_out)
+{
+    uint32_t idx = dcache_hash(parent, name);
+    dcache_entry_t *cur = dcache_table[idx];
+    while (cur) {
+        if (cur->parent == parent && strcmp(cur->name, name) == 0) {
+            if (ino_out) {
+                *ino_out = cur->ino;
+            }
+            if (type_out) {
+                *type_out = cur->type;
+            }
+            return 0;
+        }
+        cur = cur->next;
+    }
+    return -1;
+}
+
+static void dcache_insert(uint32_t parent, const char *name, uint32_t ino, uint8_t type)
+{
+    uint32_t idx = dcache_hash(parent, name);
+    dcache_entry_t *cur = dcache_table[idx];
+    while (cur) {
+        if (cur->parent == parent && strcmp(cur->name, name) == 0) {
+            cur->ino = ino;
+            cur->type = type;
+            return;
+        }
+        cur = cur->next;
+    }
+    dcache_entry_t *entry = (dcache_entry_t *)kmalloc(sizeof(dcache_entry_t));
+    if (!entry) {
+        return;
+    }
+    entry->parent = parent;
+    entry->ino = ino;
+    entry->type = type;
+    strcpy(entry->name, name);
+    entry->next = dcache_table[idx];
+    dcache_table[idx] = entry;
+}
+
+static void dcache_remove(uint32_t parent, const char *name)
+{
+    uint32_t idx = dcache_hash(parent, name);
+    dcache_entry_t *cur = dcache_table[idx];
+    dcache_entry_t *prev = NULL;
+    while (cur) {
+        if (cur->parent == parent && strcmp(cur->name, name) == 0) {
+            if (prev) {
+                prev->next = cur->next;
+            } else {
+                dcache_table[idx] = cur->next;
+            }
+            return;
+        }
+        prev = cur;
+        cur = cur->next;
+    }
+}
+
+static void dcache_clear(void)
+{
+    for (int i = 0; i < DENTRY_CACHE_BUCKETS; i++) {
+        dcache_table[i] = NULL;
+    }
+}
+
 static int dir_lookup(uint32_t dir_ino, const char *name, uint32_t *ino_out, uint8_t *type_out)
 {
     inode_t *dir = inode_get(dir_ino);
     if (!dir || dir->type != INODE_TYPE_DIR) {
         return -1;
+    }
+
+    uint32_t cached_ino = 0;
+    uint8_t cached_type = 0;
+    if (dcache_lookup(dir_ino, name, &cached_ino, &cached_type) == 0) {
+        if (ino_out) {
+            *ino_out = cached_ino;
+        }
+        if (type_out) {
+            *type_out = cached_type;
+        }
+        return 0;
     }
 
     dentry_t entry;
@@ -404,6 +618,7 @@ static int dir_lookup(uint32_t dir_ino, const char *name, uint32_t *ino_out, uin
             if (type_out) {
                 *type_out = entry.type;
             }
+            dcache_insert(dir_ino, name, entry.ino, entry.type);
             return 0;
         }
         offset += sizeof(dentry_t);
@@ -447,6 +662,7 @@ static int dir_add_entry(uint32_t dir_ino, const char *name, uint32_t ino, uint8
     if (file_write(dir, offset, &entry, sizeof(entry)) != sizeof(entry)) {
         return -1;
     }
+    dcache_insert(dir_ino, name, ino, type);
     return 0;
 }
 
@@ -473,6 +689,7 @@ static int dir_remove_entry(uint32_t dir_ino, const char *name, uint32_t *ino_ou
             entry.ino = 0;
             memset(entry.name, 0, sizeof(entry.name));
             entry.type = 0;
+            dcache_remove(dir_ino, name);
             return file_write(dir, offset, &entry, sizeof(entry)) == sizeof(entry) ? 0 : -1;
         }
         offset += sizeof(dentry_t);
@@ -631,6 +848,8 @@ static void fs_init_structures(void)
     memset(block_bitmap, 0, (FS_TOTAL_BLOCKS + 7) / 8);
     memset(inode_table, 0, sizeof(inode_t) * FS_INODE_NUM);
     memset(fdesc_array, 0, sizeof(fdesc_array));
+    cache_clear();
+    dcache_clear();
 }
 
 static void fs_init_root(void)
@@ -659,6 +878,124 @@ static void fs_init_root(void)
     }
 }
 
+static int str_contains(const char *str, const char *pat)
+{
+    int pat_len = strlen(pat);
+    if (pat_len == 0) {
+        return 1;
+    }
+    for (int i = 0; str[i] != '\0'; i++) {
+        if (strncmp(&str[i], pat, (uint32_t)pat_len) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int parse_int(const char *str)
+{
+    int value = 0;
+    int seen = 0;
+    for (int i = 0; str[i] != '\0'; i++) {
+        if (str[i] >= '0' && str[i] <= '9') {
+            seen = 1;
+            value = value * 10 + (str[i] - '0');
+        } else if (seen) {
+            break;
+        }
+    }
+    return seen ? value : -1;
+}
+
+static void fs_apply_vm_config(char *buf)
+{
+    int new_policy = page_cache_policy;
+    int new_freq = write_back_freq;
+
+    char *line = buf;
+    while (*line) {
+        char *next = line;
+        while (*next && *next != '\n') {
+            next++;
+        }
+        if (*next == '\n') {
+            *next++ = '\0';
+        }
+
+        if (strncmp(line, "page_cache_policy", 17) == 0) {
+            if (str_contains(line, "write through")) {
+                new_policy = PAGE_CACHE_WRITE_THROUGH;
+            } else if (str_contains(line, "write back")) {
+                new_policy = PAGE_CACHE_WRITE_BACK;
+            }
+        } else if (strncmp(line, "write_back_freq", 15) == 0) {
+            int val = parse_int(line);
+            if (val > 0) {
+                new_freq = val;
+            }
+        }
+        line = next;
+    }
+
+    if (page_cache_policy == PAGE_CACHE_WRITE_BACK &&
+        new_policy == PAGE_CACHE_WRITE_THROUGH) {
+        cache_flush_all();
+    }
+    page_cache_policy = new_policy;
+    write_back_freq = new_freq;
+}
+
+static void fs_load_vm_config(void)
+{
+    if (superblock.vm_inode == 0) {
+        return;
+    }
+    inode_t *inode = inode_get(superblock.vm_inode);
+    if (!inode) {
+        return;
+    }
+    inode->flags |= INODE_FLAG_VM;
+    uint32_t size = inode->size;
+    if (size == 0) {
+        return;
+    }
+    char buf[128];
+    if (size >= sizeof(buf)) {
+        size = sizeof(buf) - 1;
+    }
+    if (file_read(inode, 0, buf, size) <= 0) {
+        return;
+    }
+    buf[size] = '\0';
+    fs_apply_vm_config(buf);
+}
+
+static void fs_create_vm_file(void)
+{
+    const char *content = "page_cache_policy = write back\nwrite_back_freq = 30\n";
+
+    do_mkdir("/proc");
+    do_mkdir("/proc/sys");
+
+    int fd = do_open("/proc/sys/vm", O_WRONLY);
+    if (fd < 0) {
+        return;
+    }
+    do_write(fd, (char *)content, (int)strlen(content));
+    do_close(fd);
+
+    uint32_t ino = 0;
+    if (path_resolve("/proc/sys/vm", &ino) == 0) {
+        inode_t *inode = inode_get(ino);
+        if (inode) {
+            inode->flags |= INODE_FLAG_VM;
+        }
+        superblock.vm_inode = ino;
+        fs_sync_inode_table();
+        fs_sync_superblock();
+    }
+}
+
 void fs_init(void)
 {
     if (fs_ready) {
@@ -678,12 +1015,18 @@ void fs_init(void)
     fs_load_inode_bitmap();
     fs_load_block_bitmap();
     fs_load_inode_table();
+    if (superblock.vm_inode == 0) {
+        fs_create_vm_file();
+    }
+    fs_load_vm_config();
     fs_ready = 1;
 }
 
 int do_mkfs(void)
 {
     fs_init_structures();
+    page_cache_policy = PAGE_CACHE_WRITE_BACK;
+    write_back_freq = 30;
 
     superblock.magic = SUPERBLOCK_MAGIC;
     superblock.block_size = BLOCK_SIZE;
@@ -705,6 +1048,8 @@ int do_mkfs(void)
     bitmap_set(inode_bitmap, ROOT_INO);
     fs_init_root();
     fs_sync_metadata();
+    fs_create_vm_file();
+    cache_flush_all();
 
     printu("[mkfs] fs_size=%uMB, start_sector=0x%x\n", (FS_TOTAL_SECTORS * SECTOR_SIZE) / (1024 * 1024), FS_START_SECTOR);
     printu("[mkfs] inode_bitmap_block=%u, block_bitmap_block=%u\n", INODE_BITMAP_START, BLOCK_BITMAP_START);
@@ -982,11 +1327,17 @@ int do_write(int fd, char *buff, int length)
     if (!inode) {
         return -1;
     }
+    if ((inode->flags & INODE_FLAG_VM) && desc->offset == 0) {
+        inode->size = 0;
+    }
     int written = file_write(inode, desc->offset, buff, (uint32_t)length);
     if (written > 0) {
         desc->offset += (uint32_t)written;
         fs_sync_inode_table();
         fs_sync_block_bitmap();
+        if (inode->flags & INODE_FLAG_VM) {
+            fs_load_vm_config();
+        }
     }
     return written;
 }
