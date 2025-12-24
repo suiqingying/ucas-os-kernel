@@ -224,7 +224,7 @@ static void inode_reset(inode_t *inode)
 static void fs_sync_superblock(void)
 {
     memset(io_block, 0, sizeof(io_block));
-    memcpy(io_block, &superblock, sizeof(superblock));
+    memcpy((uint8_t *)io_block, (const uint8_t *)&superblock, sizeof(superblock));
     fs_write_block(SUPERBLOCK_BLOCK, io_block);
 }
 
@@ -872,7 +872,7 @@ static void fs_init_root(void)
         entries[1].type = INODE_TYPE_DIR;
         strcpy(entries[1].name, "..");
         memset(io_block, 0, sizeof(io_block));
-        memcpy(io_block, entries, sizeof(entries));
+        memcpy((uint8_t *)io_block, (const uint8_t *)entries, sizeof(entries));
         fs_write_block((uint32_t)block, io_block);
         root->size = sizeof(entries);
     }
@@ -1004,7 +1004,7 @@ void fs_init(void)
 
     fs_init_structures();
     fs_read_block(SUPERBLOCK_BLOCK, io_block);
-    memcpy(&superblock, io_block, sizeof(superblock));
+    memcpy((uint8_t *)&superblock, (const uint8_t *)io_block, sizeof(superblock));
 
     if (superblock.magic != SUPERBLOCK_MAGIC) {
         do_mkfs();
@@ -1141,7 +1141,7 @@ int do_mkdir(char *path)
     entries[1].type = INODE_TYPE_DIR;
     strcpy(entries[1].name, "..");
     memset(io_block, 0, sizeof(io_block));
-    memcpy(io_block, entries, sizeof(entries));
+    memcpy((uint8_t *)io_block, (const uint8_t *)entries, sizeof(entries));
     fs_write_block((uint32_t)block, io_block);
     inode->size = sizeof(entries);
 
